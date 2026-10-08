@@ -52,7 +52,7 @@ class Span {
   template <typename Container,
             typename = std::void_t<decltype(std::declval<const Container&>().data()),
                                    decltype(std::declval<const Container&>().size())>,
-            typename = std::enable_if_t<std::is_const_v<T>>>
+            typename = std::enable_if_t<std::is_const_v<T>, Container>>
   constexpr Span(const Container& c) noexcept : data_(c.data()), size_(c.size()) {}
 
   template <std::size_t N>
