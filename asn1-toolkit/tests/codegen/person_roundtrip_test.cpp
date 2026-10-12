@@ -61,7 +61,8 @@ TEST(Validation, PersonUperRoundTrip) {
   auto person = make_person<asn1_gen_per::Person>();
   asn1::BitWriter w;
   ASSERT_TRUE(asn1_gen_per::encode_uper(w, person).ok());
-  asn1::BitReader r(w.take());
+  const auto bytes = w.take();
+  asn1::BitReader r(bytes);
   asn1_gen_per::Person got{};
   ASSERT_TRUE(asn1_gen_per::decode_uper(r, got).ok());
   expect_person(got);
@@ -71,7 +72,8 @@ TEST(Validation, PersonAperRoundTrip) {
   auto person = make_person<asn1_gen_per::Person>();
   asn1::BitWriter w;
   ASSERT_TRUE(asn1_gen_per::encode_aper(w, person).ok());
-  asn1::BitReader r(w.take());
+  const auto bytes = w.take();
+  asn1::BitReader r(bytes);
   asn1_gen_per::Person got{};
   ASSERT_TRUE(asn1_gen_per::decode_aper(r, got).ok());
   expect_person(got);

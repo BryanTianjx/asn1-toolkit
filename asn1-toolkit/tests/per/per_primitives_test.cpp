@@ -178,7 +178,8 @@ TEST(PerPrimitives, NormallySmallAndLength) {
   asn1::per::encode_normally_small_length(w2, asn1::per::Variant::Unaligned, 4);
   // length 4 -> 0 + (4-1=3 as 6 bits) = 0000011 -> 0x06
   expect_bytes(w2.take(), hex({0x06}));
-  asn1::BitReader r2(hex({0x06}));
+  const auto len_bytes = hex({0x06});
+  asn1::BitReader r2(len_bytes);
   auto len = asn1::per::decode_normally_small_length(r2, asn1::per::Variant::Unaligned);
   ASSERT_TRUE(len.ok());
   EXPECT_EQ(len.value(), 4u);

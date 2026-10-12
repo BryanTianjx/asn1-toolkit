@@ -22,6 +22,8 @@
 ***************************************************************************/
 #include <asn1/runtime/byte_io.hpp>
 
+#include <memory>
+
 namespace asn1 {
 
 /**
@@ -68,6 +70,10 @@ std::vector<std::uint8_t> ByteWriter::take() {
 }
 
 ByteReader::ByteReader(Span<const std::uint8_t> data) : data_(data) {}
+
+ByteReader::ByteReader(std::vector<std::uint8_t> data)
+    : owned_(std::make_shared<const std::vector<std::uint8_t>>(std::move(data))),
+      data_(*owned_) {}
 
 /**
  *  Function    : remaining

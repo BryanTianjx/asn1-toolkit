@@ -24,6 +24,8 @@
 #include <asn1/runtime/byte_io.hpp>
 #include <asn1/runtime/limits.hpp>
 
+#include <memory>
+
 namespace asn1 {
 
 /**
@@ -151,6 +153,10 @@ void BitWriter::clear() {
 }
 
 BitReader::BitReader(Span<const std::uint8_t> data) : data_(data) {}
+
+BitReader::BitReader(std::vector<std::uint8_t> data)
+    : owned_(std::make_shared<const std::vector<std::uint8_t>>(std::move(data))),
+      data_(*owned_) {}
 
 /**
  *  Function    : bit_remaining

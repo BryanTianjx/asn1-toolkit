@@ -164,7 +164,9 @@ TEST(Uper, NullAndOctetString) {
   asn1::BitWriter wn;
   asn1::uper::encode_null(wn);
   EXPECT_EQ(wn.bit_size(), 0u);
-  ASSERT_TRUE(asn1::uper::decode_null(asn1::BitReader(std::vector<std::uint8_t>{})).ok());
+  std::vector<std::uint8_t> empty_bytes = {};
+  asn1::BitReader empty_reader(empty_bytes);
+  ASSERT_TRUE(asn1::uper::decode_null(empty_reader).ok());
 
   {
     asn1::BitWriter w;

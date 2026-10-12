@@ -27,6 +27,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace asn1 {
@@ -150,6 +151,12 @@ class BitReader {
    */
   explicit BitReader(Span<const std::uint8_t> data);
 
+  /// Owning overload: takes the buffer by value (rvalue preferred). The reader
+  /// keeps the bytes alive for its lifetime, so `BitReader(w.take())` and
+  /// `BitReader(hex({...}))` are safe instead of dangling on a destroyed
+  /// temporary. A named lvalue vector still binds to the borrowing Span ctor.
+  explicit BitReader(std::vector<std::uint8_t> data);
+
   /**
    *  Function    : get_bit
    *  Description : Returns a boolean result from none.
@@ -219,6 +226,10 @@ class BitReader {
   bool eof() const noexcept { return bit_remaining() == 0; }
 
  private:
+  // When the reader owns its bytes (constructed from a vector by value),
+  // `owned_` keeps them alive and `data_` views them; otherwise `owned_` is
+  // null and `data_` borrows caller-owned memory for the reader's lifetime.
+  std::shared_ptr<const std::vector<std::uint8_t>> owned_;
   Span<const std::uint8_t> data_;
   std::size_t bit_pos_ = 0;
 };
