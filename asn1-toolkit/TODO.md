@@ -13,6 +13,9 @@
 | CI 分支触发 | `on.push.branches` 增加 `asn1-toolkit-phase-39-validation` | 已提交（01b1c09） |
 | ASan/UBSan 构建选项（提交 ec04843） | CMake 新增 `ASN1_ENABLE_SANITIZERS`；CI 增 sanitize job；README 记录 sanitizer 构建与离线 gtest（`FETCHCONTENT_SOURCE_DIR_GOOGLETEST`） | 默认构建不受影响 |
 | person_roundtrip 源码 | 旧记录称"源码缺失"，实际 `tests/codegen/person_roundtrip_test.cpp` 存在且 UPER/APER 往返通过 | `Validation.PersonUperRoundTrip` / `PersonAperRoundTrip` 通过 |
+| CLI 端到端测试 | `tests/codegen/cli_test.cpp`：子进程方式跑 `asn1cxx`，验证退出码/错误处理/emit 产物（9 项） | `Cli.*` 通过 |
+| 跨编码一致性测试 | `tests/codegen/cross_codec_consistency_test.cpp`：同一 Person 语义值在 UPER/APER/OER/COER/BER/DER/JER 下各自往返保真（8 项） | `CrossCodec.*` 通过 |
+| 编解码性能基准 | `tests/codegen/codec_benchmark_test.cpp`：吞吐 micro-benchmark（4 项，带宽松下限防 flaky） | `CodecBenchmark.*` 通过 |
 
 ## 剩余 / 未完成
 
@@ -25,8 +28,8 @@
 
 ## 构建状态
 
-- 默认（Release）：**260/260 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：**260/260 通过**，0 失败，零 ASan/UBSan 报错、零泄漏
+- 默认（Release）：**281/281 通过**，0 失败
+- Sanitizer（ASan+UBSan，Debug）：**281/281 通过**，0 失败，零 ASan/UBSan 报错、零泄漏
 - `-Wall -Wextra`：无新增警告
 - 无残留 `Span<int>` 编译错误
 

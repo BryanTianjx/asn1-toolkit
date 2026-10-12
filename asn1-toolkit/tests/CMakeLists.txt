@@ -164,3 +164,34 @@ add_library(asn1_rrc_slice_oer_compile STATIC
 )
 target_include_directories(asn1_rrc_slice_oer_compile PRIVATE "${ASN1_RRC_SLICE_OER_DIR}")
 target_link_libraries(asn1_rrc_slice_oer_compile PRIVATE asn1::oer)
+
+# asn1cxx CLI end-to-end tests (spawn the built asn1cxx binary).
+add_executable(asn1_cli_tests
+  codegen/cli_test.cpp
+)
+target_compile_definitions(asn1_cli_tests PRIVATE
+  ASN1CXX_BIN="$<TARGET_FILE:asn1cxx>"
+  ASN1_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
+target_link_libraries(asn1_cli_tests PRIVATE GTest::gtest_main)
+add_dependencies(asn1_cli_tests asn1cxx)
+gtest_discover_tests(asn1_cli_tests)
+
+# Cross-codec consistency: same value round-trips under every codec.
+add_executable(asn1_cross_codec_tests
+  codegen/cross_codec_consistency_test.cpp
+  ${ASN1_PERSON_GEN_OUTPUTS}
+)
+target_include_directories(asn1_cross_codec_tests PRIVATE "${ASN1_PERSON_GEN_ROOT}")
+target_link_libraries(asn1_cross_codec_tests PRIVATE
+  asn1::per asn1::oer asn1::coer asn1::ber asn1::der asn1::jer GTest::gtest_main)
+gtest_discover_tests(asn1_cross_codec_tests)
+
+# Codec throughput micro-benchmark (smoke-level regression gate).
+add_executable(asn1_codec_benchmark_tests
+  codegen/codec_benchmark_test.cpp
+  ${ASN1_PERSON_GEN_OUTPUTS}
+)
+target_include_directories(asn1_codec_benchmark_tests PRIVATE "${ASN1_PERSON_GEN_ROOT}")
+target_link_libraries(asn1_codec_benchmark_tests PRIVATE
+  asn1::per asn1::oer asn1::ber asn1::jer GTest::gtest_main)
+gtest_discover_tests(asn1_codec_benchmark_tests)
