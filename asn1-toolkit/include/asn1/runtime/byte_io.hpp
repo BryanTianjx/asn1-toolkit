@@ -27,6 +27,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace asn1 {
@@ -105,6 +106,10 @@ class ByteReader {
    */
   explicit ByteReader(Span<const std::uint8_t> data);
 
+  /// Owning overload (see BitReader): keeps the bytes alive so a temporary
+  /// such as `ByteReader(w.take())` is safe instead of dangling.
+  explicit ByteReader(std::vector<std::uint8_t> data);
+
   /**
    *  Function    : get
    *  Description : Returns success or an error from get.
@@ -156,6 +161,9 @@ class ByteReader {
   Result<std::uint8_t> peek(std::size_t ahead = 0) const;
 
  private:
+  // See BitReader: `owned_` keeps by-value-constructed bytes alive; otherwise
+  // null and `data_` borrows caller-owned memory for the reader's lifetime.
+  std::shared_ptr<const std::vector<std::uint8_t>> owned_;
   Span<const std::uint8_t> data_;
   std::size_t pos_ = 0;
 };
