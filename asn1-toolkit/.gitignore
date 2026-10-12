@@ -1,5 +1,6 @@
 # Build
 /build/
+/build-san/
 /build-vs/
 /cmake-build-*/
 /out/

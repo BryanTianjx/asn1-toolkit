@@ -1,5 +1,8 @@
 include(FetchContent)
 
+# Offline override: point this at a local GoogleTest source tree to build
+# without network access, e.g.
+#   cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   googletest

@@ -12,6 +12,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ASN1_BUILD_TESTS "Build unit and integration tests" ON)
 
+# Dev/CI option: build everything (libs, tool, tests) under AddressSanitizer
+# + UndefinedBehaviorSanitizer to catch memory/lifetime and UB bugs. Off by
+# default; enable with -DASN1_ENABLE_SANITIZERS=ON.
+option(ASN1_ENABLE_SANITIZERS "Build with ASan+UBSan (dev/CI)" OFF)
+if(ASN1_ENABLE_SANITIZERS)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+  # UBSan: print a summary and keep going so one report does not abort the run.
+  add_compile_options(-fno-sanitize-recover=undefined)
+endif()
+
 add_library(asn1_common INTERFACE)
 add_library(asn1::common ALIAS asn1_common)
 target_include_directories(asn1_common INTERFACE

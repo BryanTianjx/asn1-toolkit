@@ -16,7 +16,9 @@ C++17 ASN.1 compiler and codec runtime.
 
 - CMake 3.16+
 - C++17 compiler (GCC or Clang; MSVC also accepted for local Windows work)
-- Network once at configure time (GoogleTest via FetchContent)
+- Network once at configure time (GoogleTest via FetchContent). For an
+  offline build, point FetchContent at a local GoogleTest checkout:
+  `cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`
 
 Primary target: Linux / Ubuntu 24.04 with GCC or Clang.
 
@@ -26,6 +28,18 @@ Primary target: Linux / Ubuntu 24.04 with GCC or Clang.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
+```
+
+### Sanitizer build (dev / CI)
+
+Build and test under AddressSanitizer + UndefinedBehaviorSanitizer to catch
+memory/lifetime and UB bugs. CI runs this as a separate gate.
+
+```bash
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DASN1_ENABLE_SANITIZERS=ON
+cmake --build build-san
+UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
+  ctest --test-dir build-san --output-on-failure
 ```
 
 ```bash
