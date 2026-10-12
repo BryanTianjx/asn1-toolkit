@@ -167,7 +167,7 @@ asn1-toolkit 是一个结构严谨、分层清晰、文档完整、已进入商�
 完整编解码对等验证、许可证文件) 已在文档中明确标注，可作为下一阶段计划依据。
 
 归档文件:
-  /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/analysis_report.md        (全面分析)
-  /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/reference_project_review.md (参考项目对比)
-  /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/architecture_summary.md     (本文件)
+  docs/analysis/analysis_report.md          (全面分析)
+  docs/analysis/reference_project_review.md (参考项目对比)
+  docs/analysis/architecture_summary.md     (本文件)
 ================================================================================

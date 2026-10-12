@@ -69,6 +69,8 @@ tools/asn1cxx/          compiler driver
 tests/                  unit + telecom fixture tests
 examples/               sample .asn files
 docs/ARCHITECTURE.md    design
+docs/usage_guide.md     usage guide (build/CLI quick reference)
+docs/analysis/          analysis & reference-project review notes
 ```
 
 Reference trees elsewhere in the parent workspace (`pasn1/`, asn1c, `Python_asn1tools/`) are not part of this build.

@@ -76,10 +76,10 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 - 架构设计: docs/ARCHITECTURE.md (383 行, 完整流水线、编码规则行为、阶段记录)
 - 参考树说明: docs/ARCHITECTURE.md 第 1 行 (pasn1/, asn1c, Python_asn1tools/, FFASN1dump/ 不属于本构建)
 - 版权头维护脚本: scripts/add_file_headers.py (自动添加 PROCODEC 头信息到 .cpp/.hpp)
-- 分析报告归档 (本项目根目录已生成):
-    analysis_report.md           - 全面分析
-    reference_project_review.md  - 参考项目对比
-    architecture_summary.md      - 架构整理总结
+- 分析报告归档 (docs/analysis/):
+    docs/analysis/analysis_report.md           - 全面分析
+    docs/analysis/reference_project_review.md  - 参考项目对比
+    docs/analysis/architecture_summary.md      - 架构整理总结
 
 七、注意事项与限制
 --------------------------------------------------------------------------------
@@ -98,5 +98,5 @@ IR 打印:  ./build/asn1cxx --dump-ir examples/person.asn
 生成 JER:  ./build/asn1cxx --emit-dir build/gen --codec jer examples/person.asn
 电信 IR: ./build/asn1cxx --dump-ir tests/fixtures/telecom/s1ap_14_4_0/s1ap_14_4_0.asn
 ================================================================================
-归档文件: /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/usage_guide.md (本文件)
+归档文件: docs/usage_guide.md (本文件)
 ================================================================================

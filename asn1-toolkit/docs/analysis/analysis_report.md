@@ -143,6 +143,5 @@ Phase 41 已完成核心规则、代码生成、电信 fixture 发射、对象�
 建议关注: 完成许可证文件添加、后续表约束实现、完整编解码对等验证。
 
 报告文件:
-  /home/administrator/analysis_report.md
-(可复制到 /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/ 用于归档)
+  docs/analysis/analysis_report.md (本文件)
 ================================================================================

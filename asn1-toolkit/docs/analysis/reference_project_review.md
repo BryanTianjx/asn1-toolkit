@@ -104,5 +104,5 @@ asn1c 为传统编译器，本项目不依赖其代码
 - 对 pasn1 的工具链 (act, asn1lib) 可做更深的代码级差异分析 (若需要)
 
 报告文件:
-  /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit/reference_project_review.md
+  docs/analysis/reference_project_review.md (本文件)
 ================================================================================
