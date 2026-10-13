@@ -498,17 +498,16 @@ class Emitter {
         << "#ifndef " << guard << "\n"
         << "#define " << guard << "\n\n";
 
-    const bool emit_jer = options_.codec == CodecKind::Jer;
-    const bool emit_xml = options_.codec == CodecKind::Xer ||
-                          options_.codec == CodecKind::Exer ||
-                          options_.codec == CodecKind::Cxer;
-    const bool emit_per = options_.codec == CodecKind::Uper ||
-                          options_.codec == CodecKind::Aper ||
-                          options_.codec == CodecKind::Both;
+    const bool emit_jer = (options_.codec & CodecKind::Jer) != CodecKind::None;
+    const bool emit_xml = (options_.codec &
+                           (CodecKind::Xer | CodecKind::Exer | CodecKind::Cxer)) !=
+                          CodecKind::None;
+    const bool emit_per = (options_.codec & (CodecKind::Uper | CodecKind::Aper)) !=
+                          CodecKind::None;
     const bool emit_oer =
-        options_.codec == CodecKind::Oer || options_.codec == CodecKind::Coer;
+        (options_.codec & (CodecKind::Oer | CodecKind::Coer)) != CodecKind::None;
     const bool emit_tlv =
-        options_.codec == CodecKind::Ber || options_.codec == CodecKind::Der;
+        (options_.codec & (CodecKind::Ber | CodecKind::Der)) != CodecKind::None;
     out << "#include <algorithm>\n"
         << "#include <asn1/runtime/bigint.hpp>\n"
         << "#include <asn1/runtime/bit_string.hpp>\n";
@@ -520,10 +519,10 @@ class Emitter {
     if (emit_oer || emit_tlv) {
       out << "#include <asn1/runtime/byte_io.hpp>\n";
     }
-    if (options_.codec == CodecKind::Uper || options_.codec == CodecKind::Both) {
+    if ((options_.codec & CodecKind::Uper) != CodecKind::None) {
       out << "#include <asn1/runtime/uper.hpp>\n";
     }
-    if (options_.codec == CodecKind::Aper || options_.codec == CodecKind::Both) {
+    if ((options_.codec & CodecKind::Aper) != CodecKind::None) {
       out << "#include <asn1/runtime/aper.hpp>\n";
     }
     if (emit_jer) {
@@ -534,23 +533,23 @@ class Emitter {
     }
     if (emit_xml) {
       out << "#include <asn1/runtime/xer/codec.hpp>\n";
-      if (options_.codec == CodecKind::Exer) {
+      if ((options_.codec & CodecKind::Exer) != CodecKind::None) {
         out << "#include <asn1/runtime/exer/codec.hpp>\n";
       }
-      if (options_.codec == CodecKind::Cxer) {
+      if ((options_.codec & CodecKind::Cxer) != CodecKind::None) {
         out << "#include <asn1/runtime/cxer/codec.hpp>\n";
       }
     }
-    if (options_.codec == CodecKind::Oer) {
+    if ((options_.codec & CodecKind::Oer) != CodecKind::None) {
       out << "#include <asn1/runtime/oer/codec.hpp>\n";
     }
-    if (options_.codec == CodecKind::Coer) {
+    if ((options_.codec & CodecKind::Coer) != CodecKind::None) {
       out << "#include <asn1/runtime/coer/codec.hpp>\n";
     }
     if (emit_tlv) {
       out << "#include <asn1/runtime/ber/tlv.hpp>\n"
           << "#include <asn1/runtime/ber/codec.hpp>\n";
-      if (options_.codec == CodecKind::Der) {
+      if ((options_.codec & CodecKind::Der) != CodecKind::None) {
         out << "#include <asn1/runtime/der/codec.hpp>\n";
       }
     }
@@ -587,13 +586,13 @@ class Emitter {
       if (model_.arena.get(id).kind == ir::TypeKind::Referenced) {
         continue;
       }
-      if (options_.codec == CodecKind::Uper || options_.codec == CodecKind::Both) {
+      if ((options_.codec & CodecKind::Uper) != CodecKind::None) {
         emit_codec_fns(out, id, /*aper=*/false);
       }
-      if (options_.codec == CodecKind::Aper || options_.codec == CodecKind::Both) {
+      if ((options_.codec & CodecKind::Aper) != CodecKind::None) {
         emit_codec_fns(out, id, /*aper=*/true);
       }
-      if (options_.codec == CodecKind::Jer) {
+      if (emit_jer) {
         emit_jer_codec_fns(out, id);
       }
       if (emit_xml) {
@@ -602,10 +601,10 @@ class Emitter {
       if (emit_oer) {
         emit_oer_codec_fns(out, id);
       }
-      if (options_.codec == CodecKind::Ber) {
+      if ((options_.codec & CodecKind::Ber) != CodecKind::None) {
         emit_tlv_codec_fns(out, id, /*der=*/false);
       }
-      if (options_.codec == CodecKind::Der) {
+      if ((options_.codec & CodecKind::Der) != CodecKind::None) {
         emit_tlv_codec_fns(out, id, /*der=*/true);
       }
     }
@@ -2743,14 +2742,18 @@ class Emitter {
    *  Parameters  : none
    *  Returns     : bool
    */
-  bool xer_use_exer() const { return options_.codec == CodecKind::Exer; }
+  bool xer_use_exer() const {
+    return (options_.codec & CodecKind::Exer) != CodecKind::None;
+  }
   /**
    *  Function    : xer_use_cxer
    *  Description : Returns a boolean result from none.
    *  Parameters  : none
    *  Returns     : bool
    */
-  bool xer_use_cxer() const { return options_.codec == CodecKind::Cxer; }
+  bool xer_use_cxer() const {
+    return (options_.codec & CodecKind::Cxer) != CodecKind::None;
+  }
   /**
    *  Function    : xer_use_cxer
    *  Description : Computes xer use cxer from (xer_use_cxer().
@@ -3639,7 +3642,9 @@ class Emitter {
    *  Parameters  : none
    *  Returns     : bool
    */
-  bool oer_use_coer() const { return options_.codec == CodecKind::Coer; }
+  bool oer_use_coer() const {
+    return (options_.codec & CodecKind::Coer) != CodecKind::None;
+  }
   /**
    *  Function    : oer_use_coer
    *  Description : Computes oer use coer from (oer_use_coer().

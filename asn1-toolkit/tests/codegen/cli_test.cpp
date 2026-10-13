@@ -163,3 +163,80 @@ TEST(Cli, EmitProducesFiles) {
 
   fs::remove_all(dir, ec);
 }
+
+// --- Multi-codec combination (comma-separated / repeated --codec flags) ---
+
+std::string read_text(const std::string& path) {
+  std::string s;
+  if (std::FILE* f = std::fopen(path.c_str(), "r")) {
+    char buf[4096];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
+    std::fclose(f);
+  }
+  return s;
+}
+
+// Emits into a per-test dir and returns the generated.hpp text.
+std::string emit_hpp(const std::vector<std::string>& args, int* code) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() /
+                       ("asn1cxx_cli_codec_" +
+                        std::to_string(static_cast<long long>(::getpid())));
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+
+  std::vector<std::string> full = args;
+  full.insert(full.begin(), "--emit-dir");
+  full.insert(full.begin() + 1, dir.string());
+  const auto r = run_asn1cxx(full);
+  *code = r.code;
+  const std::string hpp = read_text((dir / "generated.hpp").string());
+  fs::remove_all(dir, ec);
+  return hpp;
+}
+
+TEST(Cli, CodecComboUperBerEmitsBothRuntimes) {
+  int code = -1;
+  const std::string hpp =
+      emit_hpp({"--codec", "uper,ber", example("person.asn")}, &code);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(hpp.find("asn1/runtime/uper.hpp"), std::string::npos);
+  EXPECT_NE(hpp.find("asn1/runtime/ber/tlv.hpp"), std::string::npos);
+  // APER was NOT requested and must not leak into the emitted header.
+  EXPECT_EQ(hpp.find("asn1/runtime/aper.hpp"), std::string::npos);
+}
+
+TEST(Cli, DefaultCodecIsUperWhenFlagAbsent) {
+  int code = -1;
+  const std::string hpp = emit_hpp({example("person.asn")}, &code);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(hpp.find("asn1/runtime/uper.hpp"), std::string::npos);
+  EXPECT_EQ(hpp.find("asn1/runtime/ber/tlv.hpp"), std::string::npos);
+}
+
+TEST(Cli, RepeatedCodecFlagsAccumulate) {
+  int code = -1;
+  const std::string hpp = emit_hpp(
+      {"--codec", "uper", "--codec", "ber", example("person.asn")}, &code);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(hpp.find("asn1/runtime/uper.hpp"), std::string::npos);
+  EXPECT_NE(hpp.find("asn1/runtime/ber/tlv.hpp"), std::string::npos);
+}
+
+TEST(Cli, EmptyCodecNameInListFails) {
+  const auto r = run_asn1cxx(
+      {"--emit-dir", "/tmp/asn1cxx_cli_ignore", "--codec", "uper,",
+       example("person.asn")});
+  EXPECT_NE(r.code, 0);
+  EXPECT_NE(r.err.find("empty codec name"), std::string::npos);
+}
+
+TEST(Cli, UnknownCodecInsideListFails) {
+  const auto r = run_asn1cxx(
+      {"--emit-dir", "/tmp/asn1cxx_cli_ignore", "--codec", "uper,nope",
+       example("person.asn")});
+  EXPECT_NE(r.code, 0);
+  EXPECT_NE(r.err.find("unknown codec"), std::string::npos);
+}

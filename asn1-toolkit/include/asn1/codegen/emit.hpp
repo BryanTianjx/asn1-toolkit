@@ -32,7 +32,30 @@
 namespace asn1 {
 namespace codegen {
 
-enum class CodecKind { Uper, Aper, Both, Jer, Xer, Exer, Ber, Der, Oer, Coer, Cxer };
+// Codec selection is a bitmask: several codecs can be requested at once
+// (e.g. `--codec uper,ber` emits both). `Both` keeps its historical meaning
+// (UPER + APER) and is numerically Uper|Aper.
+enum class CodecKind : unsigned {
+  None = 0,
+  Uper = 1,
+  Aper = 2,
+  Both = 3,  // Uper | Aper
+  Jer = 4,
+  Xer = 8,
+  Exer = 16,
+  Ber = 32,
+  Der = 64,
+  Oer = 128,
+  Coer = 256,
+  Cxer = 512,
+};
+
+inline CodecKind operator|(CodecKind a, CodecKind b) {
+  return static_cast<CodecKind>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
+}
+inline CodecKind operator&(CodecKind a, CodecKind b) {
+  return static_cast<CodecKind>(static_cast<unsigned>(a) & static_cast<unsigned>(b));
+}
 
 struct EmitOptions {
   std::string namespace_name = "asn1_gen";

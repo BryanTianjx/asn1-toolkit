@@ -37,6 +37,12 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 
 可用 --codec 选项: {uper, aper, both, jer, xer, exer, ber, der, oer, coer, cxer}
 
+   组合生成: --codec 支持逗号分隔的多编解码组合, 例如:
+   ./build/asn1cxx --emit-dir build/gen --codec uper,ber examples/person.asn
+   重复给出 --codec 标志效果相同 (按位或累加):
+   ./build/asn1cxx --emit-dir build/gen --codec uper --codec ber examples/person.asn
+   未指定 --codec 时默认 uper; 列表中出现的空段或未知名称将报错退出。
+
 4. 电信 fixtures 测试 (解析 + 分析 + IR 输出验证):
    ./build/asn1cxx --dump-ir tests/fixtures/telecom/s1ap_14_4_0/s1ap_14_4_0.asn
 

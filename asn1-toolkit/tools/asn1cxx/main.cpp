@@ -38,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,6 +46,49 @@
 namespace {
 
 constexpr std::string_view kVersion = "0.1.0";
+
+/**
+ *  Function    : parse_codec_item
+ *  Description : Parses one codec name from a --codec list item.
+ *  Parameters  : v — std::string_view v
+ *  Returns     : std::optional<asn1::codegen::CodecKind>
+ */
+std::optional<asn1::codegen::CodecKind> parse_codec_item(std::string_view v) {
+  if (v == "uper") {
+    return asn1::codegen::CodecKind::Uper;
+  }
+  if (v == "aper") {
+    return asn1::codegen::CodecKind::Aper;
+  }
+  if (v == "both") {
+    return asn1::codegen::CodecKind::Both;
+  }
+  if (v == "jer") {
+    return asn1::codegen::CodecKind::Jer;
+  }
+  if (v == "xer") {
+    return asn1::codegen::CodecKind::Xer;
+  }
+  if (v == "exer") {
+    return asn1::codegen::CodecKind::Exer;
+  }
+  if (v == "ber") {
+    return asn1::codegen::CodecKind::Ber;
+  }
+  if (v == "der") {
+    return asn1::codegen::CodecKind::Der;
+  }
+  if (v == "oer") {
+    return asn1::codegen::CodecKind::Oer;
+  }
+  if (v == "coer") {
+    return asn1::codegen::CodecKind::Coer;
+  }
+  if (v == "cxer") {
+    return asn1::codegen::CodecKind::Cxer;
+  }
+  return std::nullopt;
+}
 
 /**
  *  Function    : print_usage
@@ -66,6 +110,7 @@ void print_usage(std::ostream& out) {
       << "  --dump-ir               Parse + analyze and print the type IR\n"
       << "  --emit-dir <dir>        Emit generated.hpp / generated.cpp into <dir>\n"
       << "  --codec <uper|aper|both|jer|xer|exer|ber|der|oer|coer|cxer>\n"
+      << "                         Comma-separated combination (e.g. uper,ber)\n"
       << "                         Codec for --emit-dir (default: uper)\n"
       << "  --namespace <id>        C++ namespace for generated types (default: asn1_gen)\n"
       << "\n"
@@ -223,7 +268,10 @@ int main(int argc, char** argv) {
   bool dump_ir_flag = false;
   std::string emit_dir;
   std::string namespace_name = "asn1_gen";
-  asn1::codegen::CodecKind codec = asn1::codegen::CodecKind::Uper;
+  // None until the first --codec flag; falls back to Uper afterwards so an
+  // unset --codec keeps the historical default while --codec uper,ber-style
+  // combinations accumulate by OR.
+  asn1::codegen::CodecKind codec = asn1::codegen::CodecKind::None;
   std::vector<std::string> files;
 
   for (int i = 1; i < argc; ++i) {
@@ -266,35 +314,31 @@ int main(int argc, char** argv) {
     }
     if (arg == "--codec") {
       if (i + 1 >= argc) {
-        std::cerr << "asn1cxx: --codec requires uper|aper|both|jer|xer|exer|ber|der|oer|coer|cxer\n";
+        std::cerr << "asn1cxx: --codec requires a comma-separated list of "
+                     "uper|aper|both|jer|xer|exer|ber|der|oer|coer|cxer\n";
         return EXIT_FAILURE;
       }
       const std::string_view v = argv[++i];
-      if (v == "uper") {
-        codec = asn1::codegen::CodecKind::Uper;
-      } else if (v == "aper") {
-        codec = asn1::codegen::CodecKind::Aper;
-      } else if (v == "both") {
-        codec = asn1::codegen::CodecKind::Both;
-      } else if (v == "jer") {
-        codec = asn1::codegen::CodecKind::Jer;
-      } else if (v == "xer") {
-        codec = asn1::codegen::CodecKind::Xer;
-      } else if (v == "exer") {
-        codec = asn1::codegen::CodecKind::Exer;
-      } else if (v == "ber") {
-        codec = asn1::codegen::CodecKind::Ber;
-      } else if (v == "der") {
-        codec = asn1::codegen::CodecKind::Der;
-      } else if (v == "oer") {
-        codec = asn1::codegen::CodecKind::Oer;
-      } else if (v == "coer") {
-        codec = asn1::codegen::CodecKind::Coer;
-      } else if (v == "cxer") {
-        codec = asn1::codegen::CodecKind::Cxer;
-      } else {
-        std::cerr << "asn1cxx: unknown codec '" << v << "'\n";
-        return EXIT_FAILURE;
+      // Comma-separated combination (e.g. --codec uper,ber) OR/OR repeated
+      // --codec flags accumulate into one bitmask.
+      std::size_t pos = 0;
+      while (pos <= v.size()) {
+        const std::size_t comma = v.find(',', pos);
+        const std::string_view item =
+            v.substr(pos, comma == std::string_view::npos
+                               ? std::string_view::npos
+                               : comma - pos);
+        pos = (comma == std::string_view::npos) ? v.size() + 1 : comma + 1;
+        if (item.empty()) {
+          std::cerr << "asn1cxx: empty codec name in '--codec " << v << "'\n";
+          return EXIT_FAILURE;
+        }
+        std::optional<asn1::codegen::CodecKind> one = parse_codec_item(item);
+        if (!one) {
+          std::cerr << "asn1cxx: unknown codec '" << item << "'\n";
+          return EXIT_FAILURE;
+        }
+        codec = codec | *one;
       }
       continue;
     }
@@ -323,6 +367,10 @@ int main(int argc, char** argv) {
       }
     }
     if (!emit_dir.empty()) {
+      // No --codec given at all: keep the historical UPER default.
+      if (codec == asn1::codegen::CodecKind::None) {
+        codec = asn1::codegen::CodecKind::Uper;
+      }
       if (emit_code(files, emit_dir, codec, namespace_name) != EXIT_SUCCESS) {
         status = EXIT_FAILURE;
       }
