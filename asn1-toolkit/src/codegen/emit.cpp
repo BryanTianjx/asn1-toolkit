@@ -334,7 +334,7 @@ class Emitter {
           }
         }
         for (const auto& g : t.sequence.extension_groups) {
-          for (const auto& f : g) {
+          for (const auto& f : g.fields) {
             dep(f.type);
             if (f.table_constraint) {
               for (const auto& e : f.table_constraint->entries) {
@@ -361,7 +361,7 @@ class Emitter {
           }
         }
         for (const auto& g : t.set.extension_groups) {
-          for (const auto& f : g) {
+          for (const auto& f : g.fields) {
             dep(f.type);
             if (f.table_constraint) {
               for (const auto& e : f.table_constraint->entries) {
@@ -812,12 +812,12 @@ class Emitter {
         out << "struct " << name << " {\n";
         emit_struct_fields(out, t.set.root, false);
         for (const auto& group : t.set.extension_groups) {
-          emit_struct_fields(out, group, true);
+          emit_struct_fields(out, group.fields, true);
         }
         emit_struct_fields(out, t.set.trailing_root, false);
         emit_table_constraint_structs(out, t.set.root);
         for (const auto& group : t.set.extension_groups) {
-          emit_table_constraint_structs(out, group);
+          emit_table_constraint_structs(out, group.fields);
         }
         emit_table_constraint_structs(out, t.set.trailing_root);
         out << "};\n";
@@ -827,12 +827,12 @@ class Emitter {
         out << "struct " << name << " {\n";
         emit_struct_fields(out, t.sequence.root, false);
         for (const auto& group : t.sequence.extension_groups) {
-          emit_struct_fields(out, group, true);
+          emit_struct_fields(out, group.fields, true);
         }
         emit_struct_fields(out, t.sequence.trailing_root, false);
         emit_table_constraint_structs(out, t.sequence.root);
         for (const auto& group : t.sequence.extension_groups) {
-          emit_table_constraint_structs(out, group);
+          emit_table_constraint_structs(out, group.fields);
         }
         emit_table_constraint_structs(out, t.sequence.trailing_root);
         out << "};\n";
@@ -1037,14 +1037,20 @@ class Emitter {
   }
 
   /// Encode one extension addition group (caller must shadow `w` to the open-type writer).
-  void emit_extension_group_encode(std::ostream& out, const std::vector<ir::Field>& group,
+  void emit_extension_group_encode(std::ostream& out, const ir::ExtensionGroup& group,
                                    const std::string& expr, bool aper,
                                    const std::string& ind) {
     const char* C = ns_codec(aper);
     std::vector<const ir::Field*> optionals;
-    for (const ir::Field& f : group) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
+    if (group.version_bracket) {
+      // X.691 19.9: a version-bracket group is encoded as a nested SEQUENCE
+      // inside the open type, so its OPTIONAL/DEFAULT components carry a
+      // preamble there. A plain extension addition encodes only the component
+      // value — its presence is already signalled by the extension bitmap.
+      for (const ir::Field& f : group.fields) {
+        if (field_has_presence_bit(f)) {
+          optionals.push_back(&f);
+        }
       }
     }
     if (!optionals.empty()) {
@@ -1064,7 +1070,7 @@ class Emitter {
           << optionals.size() << "));\n";
       out << ind << "}\n";
     }
-    for (const ir::Field& f : group) {
+    for (const ir::Field& f : group.fields) {
       const std::string fname = cpp_ident(f.name);
       const ir::Type& ft = resolve(model_, f.type);
       if (f.presence == ir::Presence::Optional) {
@@ -1077,14 +1083,19 @@ class Emitter {
     }
   }
 
-  void emit_extension_group_decode(std::ostream& out, const std::vector<ir::Field>& group,
+  void emit_extension_group_decode(std::ostream& out, const ir::ExtensionGroup& group,
                                    const std::string& expr, bool aper,
                                    const std::string& ind) {
     const char* C = ns_codec(aper);
     std::vector<const ir::Field*> optionals;
-    for (const ir::Field& f : group) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
+    if (group.version_bracket) {
+      // X.691 19.9: only version-bracket groups carry a nested-SEQUENCE
+      // preamble inside the open type; plain extension additions encode just
+      // the component value (presence comes from the extension bitmap).
+      for (const ir::Field& f : group.fields) {
+        if (field_has_presence_bit(f)) {
+          optionals.push_back(&f);
+        }
       }
     }
     if (!optionals.empty()) {
@@ -1093,7 +1104,7 @@ class Emitter {
           << optionals.size() << ");\n";
       out << ind << "  if (!gbm) return gbm.error();\n";
       std::size_t opt_i = 0;
-      for (const ir::Field& f : group) {
+      for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         if (field_has_presence_bit(f)) {
@@ -1125,7 +1136,7 @@ class Emitter {
       }
       out << ind << "}\n";
     } else {
-      for (const ir::Field& f : group) {
+      for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         out << ind << "{\n"
@@ -1245,13 +1256,13 @@ class Emitter {
       for (std::size_t g = 0; g < n_ext; ++g) {
         out << ind << "  ep[" << g << "] = (";
         const auto& group = seq.extension_groups[g];
-        for (std::size_t i = 0; i < group.size(); ++i) {
+        for (std::size_t i = 0; i < group.fields.size(); ++i) {
           if (i) {
             out << " || ";
           }
-          emit_ext_group_field_present(out, group[i], expr);
+          emit_ext_group_field_present(out, group.fields[i], expr);
         }
-        if (group.empty()) {
+        if (group.fields.empty()) {
           out << "false";
         }
         out << ") ? 1 : 0;\n";
@@ -1271,13 +1282,13 @@ class Emitter {
       for (std::size_t g = 0; g < n_ext; ++g) {
         out << ind << "  ep[" << g << "] = (";
         const auto& group = seq.extension_groups[g];
-        for (std::size_t i = 0; i < group.size(); ++i) {
+        for (std::size_t i = 0; i < group.fields.size(); ++i) {
           if (i) {
             out << " || ";
           }
-          emit_ext_group_field_present(out, group[i], expr);
+          emit_ext_group_field_present(out, group.fields[i], expr);
         }
-        if (group.empty()) {
+        if (group.fields.empty()) {
           out << "false";
         }
         out << ") ? 1 : 0;\n";
@@ -1459,8 +1470,8 @@ class Emitter {
             << ".bit_length, " << size_constraint_expr(t.bit_string.size) << ");\n";
         break;
       case ir::TypeKind::String:
-        out << ind << C << "::encode_utf8_string(w, " << expr << ", "
-            << size_constraint_expr(t.string.size) << ");\n";
+        out << ind << per_string_encode_call(C, t.string.kind, expr,
+                                             size_constraint_expr(t.string.size)) << ";\n";
         break;
       case ir::TypeKind::SequenceOf: {
         const ir::Type& elem = resolve(model_, t.sequence_of.element);
@@ -1691,8 +1702,10 @@ class Emitter {
         break;
       case ir::TypeKind::String:
         out << ind << "{\n"
-            << ind << "  auto tmp = " << C << "::decode_utf8_string(r, "
-            << size_constraint_expr(t.string.size) << ");\n"
+            << ind << "  auto tmp = "
+            << per_string_decode_call(C, t.string.kind, expr,
+                                      size_constraint_expr(t.string.size))
+            << ";\n"
             << ind << "  if (!tmp) return tmp.error();\n"
             << ind << "  " << expr << " = std::move(tmp.value());\n"
             << ind << "}\n";
@@ -1947,6 +1960,55 @@ class Emitter {
         return "asn1::jeri::NameForm::Literal";
     }
     return "asn1::jeri::NameForm::AsIs";
+  }
+
+  /// PER character-string dispatch (X.691 27): restricted strings pack their
+  /// alphabet with a per-character bit-width; the octet-based kinds (UTF8String
+  /// and the UTCTime/GeneralizedTime/T61/Videotex/Graphic/General family) use
+  /// the general octet length determinant.
+  static const char* per_char_string_kind_expr(ir::StringKind kind) {
+    switch (kind) {
+      case ir::StringKind::NumericString:
+        return "asn1::per::CharStringKind::NumericString";
+      case ir::StringKind::PrintableString:
+        return "asn1::per::CharStringKind::PrintableString";
+      case ir::StringKind::VisibleString:
+        return "asn1::per::CharStringKind::VisibleString";
+      case ir::StringKind::IA5String:
+        return "asn1::per::CharStringKind::IA5String";
+      case ir::StringKind::BMPString:
+        return "asn1::per::CharStringKind::BMPString";
+      case ir::StringKind::UniversalString:
+        return "asn1::per::CharStringKind::UniversalString";
+      case ir::StringKind::UTF8String:
+      case ir::StringKind::TeletexString:
+      case ir::StringKind::VideotexString:
+      case ir::StringKind::GraphicString:
+      case ir::StringKind::GeneralString:
+      case ir::StringKind::UTCTime:
+      case ir::StringKind::GeneralizedTime:
+        return nullptr;  // octet-based: handled by the caller
+    }
+    return nullptr;
+  }
+
+  std::string per_string_encode_call(const char* C, ir::StringKind kind,
+                                     const std::string& expr,
+                                     const std::string& size_expr) {
+    if (const char* k = per_char_string_kind_expr(kind)) {
+      return std::string(C) + "::encode_restricted_string(w, " + expr + ", " + k +
+             ", " + size_expr + ")";
+    }
+    return std::string(C) + "::encode_utf8_string(w, " + expr + ", " + size_expr + ")";
+  }
+
+  std::string per_string_decode_call(const char* C, ir::StringKind kind,
+                                     const std::string& expr,
+                                     const std::string& size_expr) {
+    if (const char* k = per_char_string_kind_expr(kind)) {
+      return std::string(C) + "::decode_restricted_string(r, " + k + ", " + size_expr + ")";
+    }
+    return std::string(C) + "::decode_utf8_string(r, " + size_expr + ")";
   }
 
   /**
@@ -3717,12 +3779,17 @@ class Emitter {
     }
   }
 
-  void emit_oer_extension_group_encode(std::ostream& out, const std::vector<ir::Field>& group,
+  void emit_oer_extension_group_encode(std::ostream& out, const ir::ExtensionGroup& group,
                                        const std::string& expr, const std::string& ind) {
     std::vector<const ir::Field*> optionals;
-    for (const ir::Field& f : group) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
+    if (group.version_bracket) {
+      // X.690 16.4 mirrors X.691 19.9: only version-bracket groups are
+      // encoded as a nested SEQUENCE (preamble included) inside the open
+      // type; plain extension additions carry only the component value.
+      for (const ir::Field& f : group.fields) {
+        if (field_has_presence_bit(f)) {
+          optionals.push_back(&f);
+        }
       }
     }
     if (!optionals.empty()) {
@@ -3741,7 +3808,7 @@ class Emitter {
           << "asn1::Span<const bool>(gopt, " << optionals.size() << "));\n";
       out << ind << "}\n";
     }
-    for (const ir::Field& f : group) {
+    for (const ir::Field& f : group.fields) {
       const std::string fname = cpp_ident(f.name);
       const ir::Type& ft = resolve(model_, f.type);
       if (f.presence == ir::Presence::Optional) {
@@ -3754,12 +3821,16 @@ class Emitter {
     }
   }
 
-  void emit_oer_extension_group_decode(std::ostream& out, const std::vector<ir::Field>& group,
+  void emit_oer_extension_group_decode(std::ostream& out, const ir::ExtensionGroup& group,
                                        const std::string& expr, const std::string& ind) {
     std::vector<const ir::Field*> optionals;
-    for (const ir::Field& f : group) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
+    if (group.version_bracket) {
+      // X.690 16.4 mirrors X.691 19.9: only version-bracket groups carry a
+      // nested-SEQUENCE preamble inside the open type.
+      for (const ir::Field& f : group.fields) {
+        if (field_has_presence_bit(f)) {
+          optionals.push_back(&f);
+        }
       }
     }
     if (!optionals.empty()) {
@@ -3768,7 +3839,7 @@ class Emitter {
           << optionals.size() << ");\n";
       out << ind << "  if (!gbm) return gbm.error();\n";
       std::size_t opt_i = 0;
-      for (const ir::Field& f : group) {
+      for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         if (field_has_presence_bit(f)) {
@@ -3793,7 +3864,7 @@ class Emitter {
       }
       out << ind << "}\n";
     } else {
-      for (const ir::Field& f : group) {
+      for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         out << ind << "{\n"
@@ -3845,11 +3916,11 @@ class Emitter {
       for (std::size_t g = 0; g < n_ext; ++g) {
         out << ind << "  ep[" << g << "] = (";
         const auto& group = seq.extension_groups[g];
-        for (std::size_t i = 0; i < group.size(); ++i) {
+        for (std::size_t i = 0; i < group.fields.size(); ++i) {
           if (i) out << " || ";
-          emit_ext_group_field_present(out, group[i], expr);
+          emit_ext_group_field_present(out, group.fields[i], expr);
         }
-        if (group.empty()) out << "false";
+        if (group.fields.empty()) out << "false";
         out << ");\n";
         out << ind << "  if (ep[" << g << "]) ext_present = true;\n";
       }
@@ -3891,11 +3962,11 @@ class Emitter {
       for (std::size_t g = 0; g < n_ext; ++g) {
         out << ind << "  ep[" << g << "] = (";
         const auto& group = seq.extension_groups[g];
-        for (std::size_t i = 0; i < group.size(); ++i) {
+        for (std::size_t i = 0; i < group.fields.size(); ++i) {
           if (i) out << " || ";
-          emit_ext_group_field_present(out, group[i], expr);
+          emit_ext_group_field_present(out, group.fields[i], expr);
         }
-        if (group.empty()) out << "false";
+        if (group.fields.empty()) out << "false";
         out << ");\n";
         out << ind << "  if (ep[" << g << "]) ext_present = true;\n";
       }
@@ -4553,7 +4624,7 @@ class Emitter {
       emit_tlv_sequence_field_encode(out, f, expr, der, ind);
     }
     for (const auto& group : seq.extension_groups) {
-      for (const ir::Field& f : group) {
+      for (const ir::Field& f : group.fields) {
         emit_tlv_sequence_field_encode(out, f, expr, der, ind);
       }
     }
@@ -4899,7 +4970,7 @@ class Emitter {
         }
         if (rt.kind == ir::TypeKind::Sequence) {
           for (const auto& group : rt.sequence.extension_groups) {
-            for (const ir::Field& f : group) {
+            for (const ir::Field& f : group.fields) {
               emit_tlv_field_decode_stmt(out, f, expr, der, ind + "    ");
             }
           }

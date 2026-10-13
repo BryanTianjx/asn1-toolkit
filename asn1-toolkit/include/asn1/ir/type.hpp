@@ -345,10 +345,20 @@ struct Field {
   std::optional<TableConstraintInfo> table_constraint;
 };
 
+/// One extension addition after "...". A plain component addition is encoded
+/// as an open type containing only the component value (X.691 19.9 — its
+/// presence is signalled by the extension bitmap). A version-bracket group
+/// [[...]] is encoded as a nested SEQUENCE (preamble included) inside the
+/// open type.
+struct ExtensionGroup {
+  std::vector<Field> fields;
+  bool version_bracket = false;
+};
+
 struct SequenceDesc {
   std::vector<Field> root;
   bool extensible = false;
-  std::vector<std::vector<Field>> extension_groups;
+  std::vector<ExtensionGroup> extension_groups;
   std::vector<Field> trailing_root;
 };
 

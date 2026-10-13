@@ -1297,10 +1297,11 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
             if (in_extensions) {
               out.sequence.extension_groups.emplace_back();
               auto& dest = out.sequence.extension_groups.back();
+              dest.version_bracket = true;
               for (const auto& child : grp->items()) {
                 const auto* comp = dynamic_cast<const ast::Component*>(child.get());
                 if (comp) {
-                  dest.push_back(make_field(*comp));
+                  dest.fields.push_back(make_field(*comp));
                 }
               }
             }
@@ -1313,7 +1314,8 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
           ir::Field field = make_field(*comp);
           if (in_extensions) {
             // Each ComponentType after "..." is its own extension addition.
-            out.sequence.extension_groups.push_back({std::move(field)});
+            out.sequence.extension_groups.push_back(
+                ir::ExtensionGroup{{std::move(field)}, false});
           } else if (in_trailing_root) {
             out.sequence.trailing_root.push_back(std::move(field));
           } else {
@@ -1430,10 +1432,11 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
             if (in_extensions) {
               out.set.extension_groups.emplace_back();
               auto& dest = out.set.extension_groups.back();
+              dest.version_bracket = true;
               for (const auto& child : grp->items()) {
                 const auto* comp = dynamic_cast<const ast::Component*>(child.get());
                 if (comp) {
-                  dest.push_back(make_field(*comp));
+                  dest.fields.push_back(make_field(*comp));
                 }
               }
             }
@@ -1445,7 +1448,8 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
           }
           ir::Field field = make_field(*comp);
           if (in_extensions) {
-            out.set.extension_groups.push_back({std::move(field)});
+            out.set.extension_groups.push_back(
+                ir::ExtensionGroup{{std::move(field)}, false});
           } else if (in_trailing_root) {
             out.set.trailing_root.push_back(std::move(field));
           } else {
@@ -2106,7 +2110,7 @@ void Analyzer::lower_pass() {
                 rew(f.type);
               }
               for (auto& g : t.sequence.extension_groups) {
-                for (auto& f : g) {
+                for (auto& f : g.fields) {
                   rew(f.type);
                 }
               }
@@ -2118,7 +2122,7 @@ void Analyzer::lower_pass() {
                 rew(f.type);
               }
               for (auto& g : t.set.extension_groups) {
-                for (auto& f : g) {
+                for (auto& f : g.fields) {
                   rew(f.type);
                 }
               }
@@ -2339,7 +2343,7 @@ void resolve_table_constraints(ir::Model& model, const SymbolTable& symbols) {
         resolve_field_constraint(f, t.module);
       }
       for (auto& g : t.sequence.extension_groups) {
-        for (auto& f : g) {
+        for (auto& f : g.fields) {
           resolve_field_constraint(f, t.module);
         }
       }
@@ -2351,7 +2355,7 @@ void resolve_table_constraints(ir::Model& model, const SymbolTable& symbols) {
         resolve_field_constraint(f, t.module);
       }
       for (auto& g : t.set.extension_groups) {
-        for (auto& f : g) {
+        for (auto& f : g.fields) {
           resolve_field_constraint(f, t.module);
         }
       }
@@ -2411,7 +2415,7 @@ void Analyzer::tag_pass() {
         rewrite_field(f);
       }
       for (auto& group : t.sequence.extension_groups) {
-        for (auto& f : group) {
+        for (auto& f : group.fields) {
           rewrite_field(f);
         }
       }
@@ -2423,7 +2427,7 @@ void Analyzer::tag_pass() {
         rewrite_field(f);
       }
       for (auto& group : t.set.extension_groups) {
-        for (auto& f : group) {
+        for (auto& f : group.fields) {
           rewrite_field(f);
         }
       }

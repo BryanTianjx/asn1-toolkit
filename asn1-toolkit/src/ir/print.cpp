@@ -377,7 +377,7 @@ void print_type(std::ostream& out, const TypeArena& arena, TypeId id, int depth)
         }
         out << "...\n";
         for (const auto& group : t.sequence.extension_groups) {
-          for (const auto& f : group) {
+          for (const auto& f : group.fields) {
             print_field(out, f, depth + 1);
           }
         }
@@ -417,7 +417,7 @@ void print_type(std::ostream& out, const TypeArena& arena, TypeId id, int depth)
         }
         out << "...\n";
         for (const auto& group : t.set.extension_groups) {
-          for (const auto& f : group) {
+          for (const auto& f : group.fields) {
             print_field(out, f, depth + 1);
           }
         }

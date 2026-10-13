@@ -428,15 +428,18 @@ END
   EXPECT_TRUE(s->sequence.extensible);
   ASSERT_EQ(s->sequence.root.size(), 1u);
   ASSERT_EQ(s->sequence.extension_groups.size(), 1u);
-  EXPECT_EQ(s->sequence.extension_groups[0].size(), 2u);
+  EXPECT_EQ(s->sequence.extension_groups[0].fields.size(), 2u);
+  EXPECT_TRUE(s->sequence.extension_groups[0].version_bracket);
 
   const asn1::ir::Type* lone = find_named(r.model, "Lone");
   ASSERT_NE(lone, nullptr);
   ASSERT_EQ(lone->sequence.extension_groups.size(), 2u);
-  EXPECT_EQ(lone->sequence.extension_groups[0].size(), 1u);
-  EXPECT_EQ(lone->sequence.extension_groups[1].size(), 1u);
-  EXPECT_EQ(lone->sequence.extension_groups[0][0].name, "b");
-  EXPECT_EQ(lone->sequence.extension_groups[1][0].name, "c");
+  EXPECT_EQ(lone->sequence.extension_groups[0].fields.size(), 1u);
+  EXPECT_EQ(lone->sequence.extension_groups[1].fields.size(), 1u);
+  EXPECT_FALSE(lone->sequence.extension_groups[0].version_bracket);
+  EXPECT_FALSE(lone->sequence.extension_groups[1].version_bracket);
+  EXPECT_EQ(lone->sequence.extension_groups[0].fields[0].name, "b");
+  EXPECT_EQ(lone->sequence.extension_groups[1].fields[0].name, "c");
 
   const asn1::ir::Type* pick = find_named(r.model, "Pick");
   ASSERT_NE(pick, nullptr);
