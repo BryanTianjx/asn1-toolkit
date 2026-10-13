@@ -70,6 +70,7 @@ tests/                  unit + telecom fixture tests
 examples/               sample .asn files
 docs/ARCHITECTURE.md    design
 docs/usage_guide.md     usage guide (build/CLI quick reference)
+docs/comparison_asn1c_asn1tools.md  横向对比: asn1c / Python asn1tools / 本方案
 docs/analysis/          analysis & reference-project review notes
 ```
 
