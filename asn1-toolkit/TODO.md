@@ -1,6 +1,6 @@
 # 状态清单 — asn1-toolkit 修复与构建验证
 
-状态：2026-10-13（表约束类型化 IE 开放类型 + 三大 fixture 编译门禁后）
+状态：2026-10-13（PER/APER 金标准向量对验通过 + 扩展 addition X.691 19.9 编码修复后）
 
 ## 已完成
 
@@ -20,6 +20,7 @@
 | CLI 测试并行竞态修复 | `cli_test.cpp` 临时文件使用固定名，并行 ctest 时同一二进制多实例（`--gtest_filter` 每测试一进程）互相踩同名 out/err 文件导致随机失败；改为 pid 后缀 | 并行 `ctest -j` 连续多轮 9/9 稳定通过（修复前必挂） |
 | 表约束类型化 IE 开放类型 | `analyzer.cpp`：entries 只挂开放类型字段（修复 criticality 等固定类型字段被误挂 `Decoded_` variant 的问题）；扩展枚举未显式编号时从 root 末尾值继续编号（X.680 惯例，修复 switch case 冲突）；`emit.cpp`：tc decode/encode 的 visit lambda 参数改名 `tc_alt`（避免与嵌套 CHOICE 的 `alt` 变量冲突）；OCF fixed_type 与内联 SEQUENCE OF 元素纳入 collect_named 依赖遍历（修复类型未 emit/顺序靠后）；去重按 C++ 名而非 name+module（修复参数化实例化重复定义）；内联匿名 SEQUENCE OF/SET OF 直接用裸 vector 而非 `.value`（修复 RRC/LPP 编译错误） | 新增 `asn1_tc_ie_roundtrip_tests`（4 项：typed encode 填充开放类型字节+governor id、按 id dispatch decode、固定类型字段不特化、未知 id 保留原字节） |
 | 三大 3GPP fixture 编译门禁 | `tests/CMakeLists.txt`：RRC(UPER)/LPP(UPER)/S1AP(APER) 全量 emit 产物作为静态库编译门（emit 成功 ≠ 可编译） | Release + sanitizer 全量构建通过（此前从未验证过可编译性） |
+| PER/APER 金标准字节向量（asn1c oracle） | `scripts/gen_per_golden.py` + `tests/per/per_golden_vectors_test.cpp`：从 asn1c 生成金标准向量并断言精确字节（UPER/APER 各一套）；修复扩展 addition 编码：X.691 19.9 规定简单扩展 addition 的 open type 内容仅含组件编码（presence 由扩展 bitmap 表示），只有版本括号组 `[[...]]` 才按嵌套 SEQUENCE 编码（含 preamble）。IR 新增 `ExtensionGroup{fields, version_bracket}` 区分两种形态（analyzer 填标记，emit.cpp 的 PER/OER encode/decode 四个函数仅对版本括号组生成 preamble）；此前 UPER/APER 均把 presence bit 编入 open type（多出 1 bit+对齐）导致金标准失败 | `PerGoldenVectors.UperMatchesOracleBytes` / `AperMatchesOracleBytes` 通过；Release + sanitizer 291/291 |
 
 ## 剩余 / 未完成
 
@@ -27,7 +28,7 @@
 |---|---|---|
 | 完整模块编译 CI / 3GPP 编解码对等验证 | emit+compile 已过；仍未与 3GPP 金标准字节向量对等验证（仅自往返一致） | 增加金标准向量对验证 |
 | 许可证文件 | README 标注 TBD（开放源码，发布时添加） | 发布前补 LICENSE |
-| PER 位级正确性外部对验 | 目前仅"自往返一致"，未与 X.691 金标准 / asn1c 交叉验证 | 引入外部金标准测试向量 |
+| PER 位级正确性外部对验 | `per_golden.asn` 综合向量（含扩展 addition/bitmap/fragmentation/约束原语）已与 asn1c oracle 字节级对验通过；剩余为 3GPP 协议消息级完整向量（逐消息 PDU）的对验 | 扩展 per_golden 向量覆盖面；逐步引入协议级消息向量 |
 
 ## 构建状态
 
