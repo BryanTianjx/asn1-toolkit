@@ -288,7 +288,9 @@ Frontend parses `JER INSTRUCTIONS`, type-prefix instructions, and
 `ENCODING-CONTROL JER`; semantic IR records `JerEncoding` / field NAME;
 `--codec` selects emitted codecs: `uper` / `aper` / `both` / `jer` / `xer` /
 `exer` / `ber` / `der` / `oer` / `coer` / `cxer`. JER includes SequenceOf/SetOf
-decode (array or OBJECT form).
+decode (array or OBJECT form). Object-class `&Value` open types lower to a byte
+vector and JER-encode as hex OCTET STRING (BASE64 instruction honored);
+`INSTANCE OF` decodes from the `[type-id, value]` JSON array it encodes to.
 
 Generated types prefer `std::optional` for `OPTIONAL`, plain values for
 `DEFAULT` (decoder fills default when the bit is clear), `std::vector` for

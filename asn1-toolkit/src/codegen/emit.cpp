@@ -509,7 +509,8 @@ class Emitter {
       out << "#include <asn1/runtime/aper.hpp>\n";
     }
     if (emit_jer) {
-      out << "#include <asn1/runtime/jer/json.hpp>\n"
+      out << "#include <asn1/runtime/byte_io.hpp>\n"
+          << "#include <asn1/runtime/jer/json.hpp>\n"
           << "#include <asn1/runtime/jer/codec.hpp>\n"
           << "#include <asn1/runtime/jeri/codec.hpp>\n";
     }
@@ -2258,8 +2259,19 @@ class Emitter {
             << expr << "));\n";
         break;
       case ir::TypeKind::ObjectClassField:
-        out << ind << "return asn1::make_error(asn1::Error::Code::Unsupported, 0, "
-               "\"JER encoding not implemented for this type\");\n";
+        if (rt.object_class_field.open_type) {
+          if (rt.jer.base64) {
+            out << ind << "return asn1::Result<asn1::jer::Value>::success("
+                << "asn1::jeri::encode_octet_string_base64(asn1::Span<const std::uint8_t>("
+                << expr << ".data(), " << expr << ".size())));\n";
+          } else {
+            out << ind << "return asn1::Result<asn1::jer::Value>::success("
+                << "asn1::jeri::encode_octet_string(asn1::Span<const std::uint8_t>(" << expr
+                << ".data(), " << expr << ".size())));\n";
+          }
+        } else {
+          emit_jer_encode_body(out, resolve(model_, rt.object_class_field.fixed_type), expr, ind);
+        }
         break;
     }
   }
@@ -2576,11 +2588,43 @@ class Emitter {
         break;
       }
       case ir::TypeKind::Referenced:
-      case ir::TypeKind::ObjectClassField:
-      case ir::TypeKind::InstanceOf:
         out << ind << "return asn1::make_error(asn1::Error::Code::Unsupported, 0, "
                "\"JER decode not fully generated for this type\");\n";
         break;
+      case ir::TypeKind::ObjectClassField: {
+        out << ind << "{\n";
+        if (rt.object_class_field.open_type) {
+          if (rt.jer.base64) {
+            out << ind << "  auto tmp = asn1::jeri::decode_octet_string_base64(" << v_expr
+                << ");\n";
+          } else {
+            out << ind << "  auto tmp = asn1::jeri::decode_octet_string(" << v_expr << ");\n";
+          }
+          out << ind << "  if (!tmp) return tmp.error();\n";
+          out << ind << "  " << expr << " = std::move(tmp.value());\n";
+        } else {
+          emit_jer_decode_body(out, resolve(model_, rt.object_class_field.fixed_type), expr,
+                               v_expr, ind + "  ");
+        }
+        out << ind << "}\n";
+        break;
+      }
+      case ir::TypeKind::InstanceOf: {
+        out << ind << "{\n";
+        out << ind << "  auto tmp = asn1::jeri::decode_sequence_array(" << v_expr << ");\n";
+        out << ind << "  if (!tmp) return tmp.error();\n";
+        out << ind << "  const auto& parts = *tmp.value();\n";
+        out << ind << "  if (parts.size() < 2u) return asn1::make_error("
+               "asn1::Error::Code::InvalidArgument, 0, \"INSTANCE OF expects [type-id, value]\");\n";
+        out << ind << "  auto tid = asn1::jeri::decode_object_identifier(parts[0]);\n";
+        out << ind << "  if (!tid) return tid.error();\n";
+        out << ind << "  " << expr << ".type_id = std::move(tid.value());\n";
+        out << ind << "  auto val = asn1::jeri::decode_octet_string(parts[1]);\n";
+        out << ind << "  if (!val) return val.error();\n";
+        out << ind << "  " << expr << ".value = std::move(val.value());\n";
+        out << ind << "}\n";
+        break;
+      }
     }
   }
 

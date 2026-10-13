@@ -42,11 +42,15 @@ struct CliResult {
 };
 
 // Run the asn1cxx binary with args, capturing stdout/stderr via temp files.
+// Temp file names include the pid so parallel ctest invocations of this binary
+// (one per test, via --gtest_filter) never share files.
 CliResult run_asn1cxx(const std::vector<std::string>& args) {
   namespace fs = std::filesystem;
   const fs::path bin = ASN1CXX_BIN;
-  const fs::path out_f = fs::temp_directory_path() / "asn1cxx_cli_out.txt";
-  const fs::path err_f = fs::temp_directory_path() / "asn1cxx_cli_err.txt";
+  const std::string tag =
+      "asn1cxx_cli_" + std::to_string(static_cast<long long>(::getpid())) + "_";
+  const fs::path out_f = fs::temp_directory_path() / (tag + "out.txt");
+  const fs::path err_f = fs::temp_directory_path() / (tag + "err.txt");
 
   std::vector<std::string> storage;
   storage.reserve(args.size() + 3);

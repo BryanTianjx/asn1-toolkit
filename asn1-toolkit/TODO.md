@@ -1,6 +1,6 @@
 # 状态清单 — asn1-toolkit 修复与构建验证
 
-状态：2026-10-12（全部测试通过 + sanitizer 门禁就位后）
+状态：2026-10-13（JER 对象类开放类型 + CLI 测试竞态修复后）
 
 ## 已完成
 
@@ -16,6 +16,8 @@
 | CLI 端到端测试 | `tests/codegen/cli_test.cpp`：子进程方式跑 `asn1cxx`，验证退出码/错误处理/emit 产物（9 项） | `Cli.*` 通过 |
 | 跨编码一致性测试 | `tests/codegen/cross_codec_consistency_test.cpp`：同一 Person 语义值在 UPER/APER/OER/COER/BER/DER/JER 下各自往返保真（8 项） | `CrossCodec.*` 通过 |
 | 编解码性能基准 | `tests/codegen/codec_benchmark_test.cpp`：吞吐 micro-benchmark（4 项，带宽松下限防 flaky） | `CodecBenchmark.*` 通过 |
+| JER 对象类开放类型编解码 | `emit.cpp`：`ObjectClassField`（&Value 开放类型，C++ 层即 byte vector）的 JER encode/decode 由 Unsupported 改为 hex OCTET STRING 编解码（与 `INSTANCE OF` value 一致）；同时补上 JER 生成头缺失的 `byte_io.hpp` include（`make_error` 未定义）；`INSTANCE OF` decode 由 Unsupported 改为 `[type-id, value]` 数组解析 | 新增 `asn1_ioc_jer_roundtrip_tests`（4 项），含空开放类型与短数组拒绝用例 |
+| CLI 测试并行竞态修复 | `cli_test.cpp` 临时文件使用固定名，并行 ctest 时同一二进制多实例（`--gtest_filter` 每测试一进程）互相踩同名 out/err 文件导致随机失败；改为 pid 后缀 | 并行 `ctest -j` 连续多轮 9/9 稳定通过（修复前必挂） |
 
 ## 剩余 / 未完成
 
@@ -28,12 +30,12 @@
 
 ## 构建状态
 
-- 默认（Release）：**281/281 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：**281/281 通过**，0 失败，零 ASan/UBSan 报错、零泄漏
+- 默认（Release）：**285/285 通过**，0 失败
+- Sanitizer（ASan+UBSan，Debug）：**285/285 通过**，0 失败，零 ASan/UBSan 报错、零泄漏
 - `-Wall -Wextra`：无新增警告
 - 无残留 `Span<int>` 编译错误
 
 ## 备注
 
-- 本地领先 origin/fork 4 个提交：ec04843（sanitizer+离线）、01b1c09（CI 分支触发）、c28da0d（UAF 修复）、4aed4c8（span SFINAE + 初始 CI）。
+- 本地领先 origin/fork 11 个提交：ec04843（sanitizer+离线）、01b1c09（CI 分支触发）、c28da0d（UAF 修复）、4aed4c8（span SFINAE + 初始 CI）、6d94856（TODO 260/260）、9ad969a（CLI/cross-codec/benchmark 测试）、398ed3b（docs 重组）+ 本轮 4 个（JER OCF 编解码、CLI 竞态、ioc 回归测试、TODO 更新）。
 - PR #1（→ Tinacao2007/asn1-toolkit）待属主批准 fork-PR workflow 门控后由 CI 运行。

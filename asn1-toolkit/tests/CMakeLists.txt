@@ -149,6 +149,25 @@ target_include_directories(asn1_telecom_roundtrip_tests PRIVATE "${ASN1_RRC_SLIC
 target_link_libraries(asn1_telecom_roundtrip_tests PRIVATE asn1::per GTest::gtest_main)
 gtest_discover_tests(asn1_telecom_roundtrip_tests)
 
+# JER open-type round-trips for information-object-class fields (&Value).
+set(ASN1_IOC_JER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_ioc_jer")
+add_custom_command(
+  OUTPUT "${ASN1_IOC_JER_OUT_DIR}/generated.hpp" "${ASN1_IOC_JER_OUT_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_IOC_JER_OUT_DIR}" --codec jer
+          --namespace asn1_ioc_jer "${CMAKE_SOURCE_DIR}/examples/ioc.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/examples/ioc.asn"
+  COMMENT "Generating JER C++ for examples/ioc.asn (object-class open types)"
+  VERBATIM
+)
+add_executable(asn1_ioc_jer_roundtrip_tests
+  codegen/ioc_jer_roundtrip_test.cpp
+  "${ASN1_IOC_JER_OUT_DIR}/generated.cpp"
+)
+target_include_directories(asn1_ioc_jer_roundtrip_tests PRIVATE "${ASN1_IOC_JER_OUT_DIR}")
+target_link_libraries(asn1_ioc_jer_roundtrip_tests PRIVATE asn1::jer asn1::jeri
+                      asn1::runtime GTest::gtest_main)
+gtest_discover_tests(asn1_ioc_jer_roundtrip_tests)
+
 # Phase 41: compile-gate OER emit of rrc_slice (exercises shared BitStringValue).
 set(ASN1_RRC_SLICE_OER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_rrc_slice_oer")
 add_custom_command(
