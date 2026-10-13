@@ -12,8 +12,12 @@ fixed fields re-resolve after all modules, DEFAULT is a plain field (not
 `BitStringValue`, BER/DER emit extension additions, and decode length caps.
 Phase 40 enabled full-module telecom *header* emit via synthetic nested names
 and parameterized IE-field instantiation. **Table-constraint specialization of
-`&Value` open types** and compile/link of full RRC/LPP/S1AP generated TUs are
-still incomplete (emit success ≠ typed 3GPP codec parity).
+`&Value` open types** is implemented: entries are attached only to open-type
+fields (a fixed-type field like `&criticality` keeps its fixed type), decode
+dispatches on the governor id into the per-entry specialized type, and the
+typed view (`decoded_<field>`) fills the open-type bytes and governor id on
+encode. Full RRC/LPP/S1AP generated TUs compile as CMake gates; typed 3GPP
+codec parity against golden byte vectors is still outstanding.
 
 ## Pipeline
 
@@ -330,7 +334,7 @@ GoogleTest, one binary per area, registered with CTest.
 10. APER (done)
 11. Code generator (done)
 12. Advanced ASN.1 constructs (done)
-13. Information Object Classes (partial: class fields + open-type `&Value`; table-constraint typing TBD)
+13. Information Object Classes (done: class fields, open-type `&Value`, table-constraint typed IE dispatch)
 14. Real-world telecom ASN.1 validation (done)
 15. OER (done)
 16. COER (done)

@@ -168,6 +168,28 @@ target_link_libraries(asn1_ioc_jer_roundtrip_tests PRIVATE asn1::jer asn1::jeri
                       asn1::runtime GTest::gtest_main)
 gtest_discover_tests(asn1_ioc_jer_roundtrip_tests)
 
+# Table-constraint typed IE open types: {ObjectSet}{@id} dispatch into the
+# per-entry specialized type on decode; typed view fills the open-type bytes
+# and governor id on encode. Separate binary: the generated header name
+# (`generated.hpp`) is shared with the other fixture gates.
+set(ASN1_TC_IE_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tc_ie")
+add_custom_command(
+  OUTPUT "${ASN1_TC_IE_OUT_DIR}/generated.hpp" "${ASN1_TC_IE_OUT_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_TC_IE_OUT_DIR}" --codec uper
+          --namespace tc_test
+          "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/table_constraint_ie.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/table_constraint_ie.asn"
+  COMMENT "Generating UPER C++ for telecom table_constraint_ie.asn"
+  VERBATIM
+)
+add_executable(asn1_tc_ie_roundtrip_tests
+  telecom/table_constraint_ie_roundtrip_test.cpp
+  "${ASN1_TC_IE_OUT_DIR}/generated.cpp"
+)
+target_include_directories(asn1_tc_ie_roundtrip_tests PRIVATE "${ASN1_TC_IE_OUT_DIR}")
+target_link_libraries(asn1_tc_ie_roundtrip_tests PRIVATE asn1::per GTest::gtest_main)
+gtest_discover_tests(asn1_tc_ie_roundtrip_tests)
+
 # Phase 41: compile-gate OER emit of rrc_slice (exercises shared BitStringValue).
 set(ASN1_RRC_SLICE_OER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_rrc_slice_oer")
 add_custom_command(
@@ -183,6 +205,29 @@ add_library(asn1_rrc_slice_oer_compile STATIC
 )
 target_include_directories(asn1_rrc_slice_oer_compile PRIVATE "${ASN1_RRC_SLICE_OER_DIR}")
 target_link_libraries(asn1_rrc_slice_oer_compile PRIVATE asn1::oer)
+
+# Full 3GPP module compile gates: emit must produce C++ that actually
+# compiles (emit success != compilable output; these fixtures exercise
+# parameterized IE instantiations, table-constraint typed open types,
+# nested names, and extension enumerations).
+macro(asn1_fixture_compile_gate name codec lib fixture)
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_${name}")
+  add_custom_command(
+    OUTPUT "${_dir}/generated.hpp" "${_dir}/generated.cpp"
+    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${codec} --namespace asn1_${name}
+            "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    COMMENT "Generating ${codec} C++ for telecom ${fixture} (compile gate)"
+    VERBATIM
+  )
+  add_library(asn1_${name}_compile STATIC "${_dir}/generated.cpp")
+  target_include_directories(asn1_${name}_compile PRIVATE "${_dir}")
+  target_link_libraries(asn1_${name}_compile PRIVATE asn1::${lib})
+endmacro()
+
+asn1_fixture_compile_gate(rrc_full uper per rrc_8_6_0/EUTRA-RRC-Definitions.asn)
+asn1_fixture_compile_gate(lpp_full uper per lpp_14_3_0/LPP-PDU-Definitions.asn)
+asn1_fixture_compile_gate(s1ap_full aper per s1ap_14_4_0/s1ap_14_4_0.asn)
 
 # asn1cxx CLI end-to-end tests (spawn the built asn1cxx binary).
 add_executable(asn1_cli_tests

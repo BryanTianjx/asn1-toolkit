@@ -288,21 +288,39 @@ class Emitter {
       }
       for (ir::TypeId existing : named_order_) {
         const ir::Type& e = model_.arena.get(existing);
-        if (e.name == t.name && e.module == t.module) {
+        // C++ names carry no module qualifier, so two arena types with the
+        // same name collide in the output even from different modules (the
+        // same parameterized instantiation reached via two paths). Dedup on
+        // the emitted name.
+        if (cpp_ident(e.name) == cpp_ident(t.name)) {
           named_set_.insert(id);
           return;
         }
       }
       visiting.insert(id);
-      auto dep = [&](ir::TypeId d) {
+      std::function<void(ir::TypeId)> dep = [&](ir::TypeId d) {
         if (d == ir::kInvalidType) {
           return;
         }
-        // Prefer the named target of aliases / resolved refs.
         const ir::Type& dt = model_.arena.get(d);
         if (dt.kind == ir::TypeKind::Referenced &&
             dt.referenced.resolved != ir::kInvalidType) {
           consider(dt.referenced.resolved);
+        }
+        // An ObjectClassField type is unnamed, so consider() bails on it; its
+        // fixed-type governor (e.g. &id -> ProtocolExtensionID) is otherwise
+        // never traversed and the member declaration references a missing type.
+        if (dt.kind == ir::TypeKind::ObjectClassField) {
+          dep(dt.object_class_field.fixed_type);
+        }
+        // An inline (anonymous) SEQUENCE OF / SET OF is unnamed too; its
+        // element must still be emitted before the containing type so the
+        // generated codec call resolves at its definition point.
+        if (dt.kind == ir::TypeKind::SequenceOf) {
+          dep(dt.sequence_of.element);
+        }
+        if (dt.kind == ir::TypeKind::SetOf) {
+          dep(dt.set_of.element);
         }
         consider(d);
       };
@@ -400,7 +418,7 @@ class Emitter {
     if (is_named(t)) {
       for (ir::TypeId nid : named_order_) {
         const ir::Type& n = model_.arena.get(nid);
-        if (n.name == t.name && n.module == t.module) {
+        if (cpp_ident(n.name) == cpp_ident(t.name)) {
           return named_type_cpp(n);
         }
       }
@@ -1172,15 +1190,17 @@ class Emitter {
         const auto alt_names = compute_table_entry_alt_names(f.table_constraint->entries);
         out << ind << "  if (" << expr << "." << fname << ".empty() && "
             << expr << ".decoded_" << fname << ".has_value()) {\n";
-        out << ind << "    auto tc_res = std::visit([&](const auto& alt) -> asn1::Result<void> {\n";
-        out << ind << "      using AltT = std::decay_t<decltype(alt)>;\n";
+        // Parameter name must not collide with `alt` emitted by a nested
+        // CHOICE encode body inside the visit lambda.
+        out << ind << "    auto tc_res = std::visit([&](const auto& tc_alt) -> asn1::Result<void> {\n";
+        out << ind << "      using AltT = std::decay_t<decltype(tc_alt)>;\n";
         for (std::size_t ei = 0; ei < f.table_constraint->entries.size(); ++ei) {
           const auto& entry = f.table_constraint->entries[ei];
           out << ind << "      if constexpr (std::is_same_v<AltT, typename std::decay_t<decltype("
               << expr << ")>::Decoded_" << fname << "::" << alt_names[ei] << ">) {\n";
           out << ind << "        asn1::BitWriter sub_w;\n";
           out << ind << "        asn1::BitWriter& w = sub_w;\n";
-          emit_encode_body(out, resolve(model_, entry.type), "alt.value", aper, ind + "        ");
+          emit_encode_body(out, resolve(model_, entry.type), "tc_alt.value", aper, ind + "        ");
           out << ind << "        const_cast<std::decay_t<decltype(" << expr << ")>&>(" << expr << ")." << fname
               << " = sub_w.take();\n";
           if (entry.has_id_value) {
@@ -1444,15 +1464,18 @@ class Emitter {
         break;
       case ir::TypeKind::SequenceOf: {
         const ir::Type& elem = resolve(model_, t.sequence_of.element);
+        // A named SEQUENCE OF lowers to a distinct alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(t) ? expr + ".value" : expr;
         out << ind << "{\n";
-        out << ind << "  std::size_t remaining = " << expr << ".value.size();\n";
+        out << ind << "  std::size_t remaining = " << vec << ".size();\n";
         out << ind << "  std::size_t offset = 0;\n";
         out << ind << "  bool is_first = true;\n";
         out << ind << "  for (;;) {\n";
         out << ind << "    std::size_t chunk = " << C << "::encode_sequence_of_chunk(w, remaining, is_first, "
             << size_constraint_expr(t.sequence_of.size) << ");\n";
         out << ind << "    for (std::size_t i = 0; i < chunk; ++i) {\n";
-        out << ind << "      const auto& elem = " << expr << ".value[offset + i];\n";
+        out << ind << "      const auto& elem = " << vec << "[offset + i];\n";
         if (is_named(elem)) {
           out << ind << "      if (auto r = encode_" << fn_suffix(aper) << "(w, elem); !r) return r;\n";
         } else {
@@ -1470,15 +1493,18 @@ class Emitter {
 
       case ir::TypeKind::SetOf: {
         const ir::Type& elem = resolve(model_, t.set_of.element);
+        // A named SET OF lowers to a distinct alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(t) ? expr + ".value" : expr;
         out << ind << "{\n";
-        out << ind << "  std::size_t remaining = " << expr << ".value.size();\n";
+        out << ind << "  std::size_t remaining = " << vec << ".size();\n";
         out << ind << "  std::size_t offset = 0;\n";
         out << ind << "  bool is_first = true;\n";
         out << ind << "  for (;;) {\n";
         out << ind << "    std::size_t chunk = " << C << "::encode_sequence_of_chunk(w, remaining, is_first, "
             << size_constraint_expr(t.set_of.size) << ");\n";
         out << ind << "    for (std::size_t i = 0; i < chunk; ++i) {\n";
-        out << ind << "      const auto& elem = " << expr << ".value[offset + i];\n";
+        out << ind << "      const auto& elem = " << vec << "[offset + i];\n";
         if (is_named(elem)) {
           out << ind << "      if (auto r = encode_" << fn_suffix(aper) << "(w, elem); !r) return r;\n";
         } else {
@@ -1673,15 +1699,18 @@ class Emitter {
         break;
       case ir::TypeKind::SequenceOf: {
         const ir::Type& elem_t = resolve(model_, t.sequence_of.element);
+        // A named SEQUENCE OF lowers to a distinct alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(t) ? expr + ".value" : expr;
         out << ind << "{\n"
-            << ind << "  " << expr << ".value.clear();\n"
+            << ind << "  " << vec << ".clear();\n"
             << ind << "  bool is_first = true;\n"
             << ind << "  for (;;) {\n"
             << ind << "    auto n = " << C << "::decode_sequence_of_chunk(r, is_first, "
             << size_constraint_expr(t.sequence_of.size) << ");\n"
             << ind << "    if (!n) return n.error();\n"
-            << ind << "    if (" << expr << ".value.size() + n.value() > 1000000) return asn1::make_error(asn1::Error::Code::LengthOverflow, r.bit_offset(), \"sequence of count exceeds safe limit\");\n"
-            << ind << "    " << expr << ".value.reserve(" << expr << ".value.size() + std::min<std::size_t>(n.value(), 1024));\n"
+            << ind << "    if (" << vec << ".size() + n.value() > 1000000) return asn1::make_error(asn1::Error::Code::LengthOverflow, r.bit_offset(), \"sequence of count exceeds safe limit\");\n"
+            << ind << "    " << vec << ".reserve(" << vec << ".size() + std::min<std::size_t>(n.value(), 1024));\n"
             << ind << "    for (std::size_t i = 0; i < n.value(); ++i) {\n"
             << ind << "      " << type_cpp(t.sequence_of.element) << " elem{};\n";
         if (is_named(elem_t)) {
@@ -1690,7 +1719,7 @@ class Emitter {
         } else {
           emit_decode_body(out, elem_t, "elem", aper, ind + "      ");
         }
-        out << ind << "      " << expr << ".value.push_back(std::move(elem));\n"
+        out << ind << "      " << vec << ".push_back(std::move(elem));\n"
             << ind << "    }\n"
             << ind << "    is_first = false;\n"
             << ind << "    if (n.value() < 16384) break;\n"
@@ -1701,15 +1730,18 @@ class Emitter {
 
       case ir::TypeKind::SetOf: {
         const ir::Type& elem_t = resolve(model_, t.set_of.element);
+        // A named SET OF lowers to a distinct alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(t) ? expr + ".value" : expr;
         out << ind << "{\n"
-            << ind << "  " << expr << ".value.clear();\n"
+            << ind << "  " << vec << ".clear();\n"
             << ind << "  bool is_first = true;\n"
             << ind << "  for (;;) {\n"
             << ind << "    auto n = " << C << "::decode_sequence_of_chunk(r, is_first, "
             << size_constraint_expr(t.set_of.size) << ");\n"
             << ind << "    if (!n) return n.error();\n"
-            << ind << "    if (" << expr << ".value.size() + n.value() > 1000000) return asn1::make_error(asn1::Error::Code::LengthOverflow, r.bit_offset(), \"set of count exceeds safe limit\");\n"
-            << ind << "    " << expr << ".value.reserve(" << expr << ".value.size() + std::min<std::size_t>(n.value(), 1024));\n"
+            << ind << "    if (" << vec << ".size() + n.value() > 1000000) return asn1::make_error(asn1::Error::Code::LengthOverflow, r.bit_offset(), \"set of count exceeds safe limit\");\n"
+            << ind << "    " << vec << ".reserve(" << vec << ".size() + std::min<std::size_t>(n.value(), 1024));\n"
             << ind << "    for (std::size_t i = 0; i < n.value(); ++i) {\n"
             << ind << "      " << type_cpp(t.set_of.element) << " elem{};\n";
         if (is_named(elem_t)) {
@@ -1718,7 +1750,7 @@ class Emitter {
         } else {
           emit_decode_body(out, elem_t, "elem", aper, ind + "      ");
         }
-        out << ind << "      " << expr << ".value.push_back(std::move(elem));\n"
+        out << ind << "      " << vec << ".push_back(std::move(elem));\n"
             << ind << "    }\n"
             << ind << "    is_first = false;\n"
             << ind << "    if (n.value() < 16384) break;\n"

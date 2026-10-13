@@ -1465,8 +1465,8 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
   } else if (const auto* en = dynamic_cast<const ast::EnumeratedType*>(&type)) {
     out.kind = ir::TypeKind::Enumerated;
     auto assign_enum = [](const std::vector<ast::NamedNumber>& in,
-                          std::vector<ir::NamedNumber>& dest) {
-      std::int64_t next = 0;
+                          std::vector<ir::NamedNumber>& dest, std::int64_t start) {
+      std::int64_t next = start;
       bool have_next = true;
       for (const auto& nn : in) {
         ir::NamedNumber out_nn;
@@ -1488,9 +1488,16 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
         dest.push_back(std::move(out_nn));
       }
     };
-    assign_enum(en->root(), out.enumerated.root);
+    assign_enum(en->root(), out.enumerated.root, 0);
     out.enumerated.extensible = en->extensible();
-    assign_enum(en->extensions(), out.enumerated.extensions);
+    // Extension additions without explicit numbers continue the root numbering
+    // (X.680 numbering used by asn1c and 3GPP specs); restarting at 0 would
+    // collide with root values in the emitted value->index switch.
+    std::int64_t ext_start = 0;
+    if (!out.enumerated.root.empty() && out.enumerated.root.back().value.as_i64) {
+      ext_start = *out.enumerated.root.back().value.as_i64 + 1;
+    }
+    assign_enum(en->extensions(), out.enumerated.extensions, ext_start);
   } else if (dynamic_cast<const ast::ObjectIdentifierType*>(&type)) {
     out.kind = ir::TypeKind::ObjectIdentifier;
     out.object_identifier.size =
@@ -2230,6 +2237,21 @@ void resolve_table_constraints(ir::Model& model, const SymbolTable& symbols) {
   auto resolve_field_constraint = [&](ir::Field& f, const std::string& /*parent_module*/) {
     if (!f.table_constraint || f.table_constraint->object_set_name.empty()) {
       return;
+    }
+    // Typed table constraints only specialize an open-type (&Value) field.
+    // A fixed-type field (e.g. &criticality) carries the same {ObjectSet}{@id}
+    // component-relation constraint, but its type is fixed; entries there are
+    // meaningless and would emit undecodable variants.
+    if (f.type != ir::kInvalidType) {
+      const ir::Type& ft = model.arena.get(f.type);
+      const ir::Type& frt = (ft.kind == ir::TypeKind::Referenced &&
+                             ft.referenced.resolved != ir::kInvalidType)
+                                ? model.arena.get(ft.referenced.resolved)
+                                : ft;
+      if (!(frt.kind == ir::TypeKind::ObjectClassField && frt.object_class_field.open_type)) {
+        f.table_constraint.reset();
+        return;
+      }
     }
     const auto os_it = os_by_name.find(f.table_constraint->object_set_name);
     if (os_it == os_by_name.end() || !os_it->second) {
