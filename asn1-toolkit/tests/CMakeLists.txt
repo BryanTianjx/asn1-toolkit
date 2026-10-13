@@ -50,6 +50,29 @@ add_executable(asn1_per_tests per/per_primitives_test.cpp)
 target_link_libraries(asn1_per_tests PRIVATE asn1::per GTest::gtest_main)
 gtest_discover_tests(asn1_per_tests)
 
+# Differential PER validation against externally-generated golden vectors
+# (asn1tools via scripts/gen_per_golden.py). The generated.hpp comes from the
+# per_golden.asn fixture; the vectors are checked in under tests/per/golden/.
+set(ASN1_PER_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_per_golden")
+add_custom_command(
+  OUTPUT "${ASN1_PER_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_PER_GOLDEN_GEN_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec both
+          --namespace pg
+          "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
+  COMMENT "Generating UPER/APER C++ for telecom per_golden.asn"
+  VERBATIM
+)
+add_executable(asn1_per_golden_tests
+  per/per_golden_vectors_test.cpp
+  "${ASN1_PER_GOLDEN_GEN_DIR}/generated.cpp"
+)
+target_include_directories(asn1_per_golden_tests PRIVATE "${ASN1_PER_GOLDEN_GEN_DIR}")
+target_compile_definitions(asn1_per_golden_tests PRIVATE
+  ASN1_PER_GOLDEN_FILE="${CMAKE_SOURCE_DIR}/tests/per/golden/per_golden_vectors.txt")
+target_link_libraries(asn1_per_golden_tests PRIVATE asn1::per GTest::gtest_main)
+gtest_discover_tests(asn1_per_golden_tests)
+
 add_executable(asn1_uper_tests uper/uper_test.cpp)
 target_link_libraries(asn1_uper_tests PRIVATE asn1::per GTest::gtest_main)
 gtest_discover_tests(asn1_uper_tests)
