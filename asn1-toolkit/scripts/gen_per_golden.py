@@ -132,6 +132,14 @@ CASES = [
     ('extchoice_b', 'ExtChoice', ('b', 'xy')),
     ('extchoice_ext', 'ExtChoice', ('c', True)),
 
+    # ---- Version-bracket extension groups (X.691 19.9: nested SEQUENCE) ----
+    # vbseq_root: group fully absent -> bitmap bit 0, no open type.
+    # vbseq_full: group present with both inner components.
+    # vbseq_partial: group present, inner preamble marks d absent.
+    ('vbseq_root', 'ExtSeqVB', {'a': 7, 'b': True}),
+    ('vbseq_full', 'ExtSeqVB', {'a': 7, 'b': True, 'c': 200, 'd': 'xy'}),
+    ('vbseq_partial', 'ExtSeqVB', {'a': 7, 'b': True, 'c': 200}),
+
     # ---- Fragmentation (16385 booleans: one full 16K chunk + remainder) ----
     ('frag_small', 'Frag', [True, False, True]),
     ('frag_boundary', 'Frag', [i % 2 == 0 for i in range(16385)]),

@@ -74,6 +74,19 @@ BEGIN
     c BOOLEAN
   }
 
+  -- Version-bracket group: the whole group is ONE extension addition (one
+  -- bitmap bit); a fully-absent group sets that bit to 0. The group itself is
+  -- encoded as a nested SEQUENCE (preamble included, X.691 19.9 NOTE 1).
+  ExtSeqVB ::= SEQUENCE {
+    a INTEGER (0..255),
+    b BOOLEAN,
+    ...,
+    [[
+      c INTEGER (0..255) OPTIONAL,
+      d VisibleString (SIZE (1..4)) OPTIONAL
+    ]]
+  }
+
   -- Fragmentation: SEQUENCE OF longer than one 64K chunk is encoded as
   -- a 16K-count fragment with the continuation bit set. BOOLEAN elements
   -- keep the checked-in vector compact.

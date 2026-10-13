@@ -1073,13 +1073,15 @@ class Emitter {
     for (const ir::Field& f : group.fields) {
       const std::string fname = cpp_ident(f.name);
       const ir::Type& ft = resolve(model_, f.type);
-      if (f.presence == ir::Presence::Optional) {
-        out << ind << "if (" << expr << "." << fname << ") {\n";
-        emit_field_encode(out, ft, expr + "." + fname + ".value()", aper, ind + "  ");
-        out << ind << "}\n";
-      } else {
-        emit_field_encode(out, ft, expr + "." + fname, aper, ind);
-      }
+      // Extension-group fields are force-optional in the struct (see
+      // emit_struct_fields(..., force_optional=true)), so every member is
+      // encoded under a presence check and unwrapped with .value(). Per
+      // X.691 19.9 NOTE 1 the group preamble carries presence bits only for
+      // OPTIONAL/DEFAULT members; a mandatory member has no bit and is
+      // encoded whenever the group itself is present (the caller sets it).
+      out << ind << "if (" << expr << "." << fname << ") {\n";
+      emit_field_encode(out, ft, expr + "." + fname + ".value()", aper, ind + "  ");
+      out << ind << "}\n";
     }
   }
 
@@ -3811,13 +3813,11 @@ class Emitter {
     for (const ir::Field& f : group.fields) {
       const std::string fname = cpp_ident(f.name);
       const ir::Type& ft = resolve(model_, f.type);
-      if (f.presence == ir::Presence::Optional) {
-        out << ind << "if (" << expr << "." << fname << ") {\n";
-        emit_oer_field_encode(out, ft, expr + "." + fname + ".value()", ind + "  ");
-        out << ind << "}\n";
-      } else {
-        emit_oer_field_encode(out, ft, expr + "." + fname, ind);
-      }
+      // Extension-group fields are force-optional in the struct; see the PER
+      // encoder for the X.691 19.9 / X.690 16.4 rationale.
+      out << ind << "if (" << expr << "." << fname << ") {\n";
+      emit_oer_field_encode(out, ft, expr + "." + fname + ".value()", ind + "  ");
+      out << ind << "}\n";
     }
   }
 

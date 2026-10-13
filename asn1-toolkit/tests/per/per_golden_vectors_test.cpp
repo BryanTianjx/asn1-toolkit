@@ -238,6 +238,19 @@ pg::ExtSeq build_extseq(const std::string& name) {
   return s;
 }
 
+pg::ExtSeqVB build_extseqvb(const std::string& name) {
+  pg::ExtSeqVB s;
+  s.a = 7;
+  s.b = true;
+  if (name == "vbseq_full") {
+    s.c = 200;
+    s.d = "xy";
+  } else if (name == "vbseq_partial") {
+    s.c = 200;
+  }
+  return s;
+}
+
 pg::ExtChoice build_extchoice(const std::string& name) {
   pg::ExtChoice c;
   if (name == "extchoice_a") {
@@ -308,6 +321,10 @@ bool eq_extseq(const pg::ExtSeq& a, const pg::ExtSeq& b) {
   return a.a == b.a && a.b == b.b && a.c == b.c;
 }
 
+bool eq_extseqvb(const pg::ExtSeqVB& a, const pg::ExtSeqVB& b) {
+  return a.a == b.a && a.b == b.b && a.c == b.c && a.d == b.d;
+}
+
 bool eq_extchoice(const pg::ExtChoice& a, const pg::ExtChoice& b) {
   return a.alt.index() == b.alt.index() &&
          std::visit(
@@ -371,6 +388,17 @@ TEST(PerGoldenVectors, UperMatchesOracleBytes) {
       auto d = pg::decode_uper(r, got);
       ASSERT_TRUE(d.ok()) << d.error().message;
       EXPECT_TRUE(eq_extchoice(got, v));
+    } else if (c.name.rfind("vbseq_", 0) == 0) {
+      const pg::ExtSeqVB v = build_extseqvb(c.name);
+      asn1::BitWriter w;
+      auto e = pg::encode_uper(w, v);
+      ASSERT_TRUE(e.ok()) << e.error().message;
+      EXPECT_EQ(to_hex(w.take()), c.uper_hex);
+      pg::ExtSeqVB got{};
+      asn1::BitReader r(want);
+      auto d = pg::decode_uper(r, got);
+      ASSERT_TRUE(d.ok()) << d.error().message;
+      EXPECT_TRUE(eq_extseqvb(got, v));
     } else if (c.name.rfind("frag_", 0) == 0) {
       const std::vector<bool> v = build_frag(c.name);
       pg::Frag frag;
@@ -436,6 +464,17 @@ TEST(PerGoldenVectors, AperMatchesOracleBytes) {
       auto d = pg::decode_aper(r, got);
       ASSERT_TRUE(d.ok()) << d.error().message;
       EXPECT_TRUE(eq_extchoice(got, v));
+    } else if (c.name.rfind("vbseq_", 0) == 0) {
+      const pg::ExtSeqVB v = build_extseqvb(c.name);
+      asn1::BitWriter w;
+      auto e = pg::encode_aper(w, v);
+      ASSERT_TRUE(e.ok()) << e.error().message;
+      EXPECT_EQ(to_hex(w.take()), c.aper_hex);
+      pg::ExtSeqVB got{};
+      asn1::BitReader r(want);
+      auto d = pg::decode_aper(r, got);
+      ASSERT_TRUE(d.ok()) << d.error().message;
+      EXPECT_TRUE(eq_extseqvb(got, v));
     } else if (c.name.rfind("frag_", 0) == 0) {
       const std::vector<bool> v = build_frag(c.name);
       pg::Frag frag;
