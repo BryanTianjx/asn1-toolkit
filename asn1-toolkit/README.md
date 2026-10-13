@@ -72,6 +72,7 @@ docs/ARCHITECTURE.md    design
 docs/usage_guide.md     usage guide (build/CLI quick reference)
 docs/comparison_asn1c_asn1tools.md  横向对比: asn1c / Python asn1tools / 本方案
 docs/analysis/          analysis & reference-project review notes
+docs/analysis/architecture_review_and_optimization.md  架构优势分析与优化方案
 ```
 
 Reference trees elsewhere in the parent workspace (`pasn1/`, asn1c, `Python_asn1tools/`) are not part of this build.
