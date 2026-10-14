@@ -35,7 +35,7 @@
 ## 构建状态
 
 - 默认（Release）：**298/298 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：待本轮 out-of-line 改动复测（基线 296/296）
+- Sanitizer（ASan+UBSan，Debug）：**298/298 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译）
 - 三大 3GPP fixture（RRC/LPP/S1AP）emit 产物全量编译门禁通过（现在编译的是真实定义，此前为 stub）
 - `-Wall -Wextra`：无新增警告
 - 无残留 `Span<int>` 编译错误
