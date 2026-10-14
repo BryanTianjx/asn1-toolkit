@@ -172,6 +172,27 @@ target_include_directories(asn1_telecom_roundtrip_tests PRIVATE "${ASN1_RRC_SLIC
 target_link_libraries(asn1_telecom_roundtrip_tests PRIVATE asn1::per GTest::gtest_main)
 gtest_discover_tests(asn1_telecom_roundtrip_tests)
 
+# tlv_oer_golden fixture: mixed tags / DEFAULT / SET / nested CHOICE across
+# BER, DER, OER and JER (byte-level assertions on tag and DEFAULT behaviour).
+set(ASN1_TLV_OER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tlv_oer_golden")
+add_custom_command(
+  OUTPUT "${ASN1_TLV_OER_GEN_DIR}/generated.hpp" "${ASN1_TLV_OER_GEN_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_TLV_OER_GEN_DIR}" --codec ber,der,oer,jer
+          --namespace asn1_tlv_oer
+          "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_oer_golden.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_oer_golden.asn"
+  COMMENT "Generating BER/DER/OER/JER C++ for telecom tlv_oer_golden.asn"
+  VERBATIM
+)
+add_executable(asn1_tlv_oer_golden_tests
+  codegen/tlv_oer_golden_roundtrip_test.cpp
+  "${ASN1_TLV_OER_GEN_DIR}/generated.cpp"
+)
+target_include_directories(asn1_tlv_oer_golden_tests PRIVATE "${ASN1_TLV_OER_GEN_DIR}")
+target_link_libraries(asn1_tlv_oer_golden_tests PRIVATE
+  asn1::ber asn1::der asn1::oer asn1::jer GTest::gtest_main)
+gtest_discover_tests(asn1_tlv_oer_golden_tests)
+
 # JER open-type round-trips for information-object-class fields (&Value).
 set(ASN1_IOC_JER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_ioc_jer")
 add_custom_command(
