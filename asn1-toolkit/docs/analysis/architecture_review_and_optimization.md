@@ -35,7 +35,8 @@ asn1-toolkit 架构分析与优化方案
   per/codec.hpp       1,198 行 (header)
   ast/type.hpp        1,184 行 (header)
   其余各 500-1,200 行, 共 35,821 行 C++17
-测试: 8615 行 / 21 个测试域 / 296 项 CTest
+测试: 8615 行 / 21 个测试域 / 306 项 CTest (tlv_oer_golden 8 项为
+  2026-10-14 P0-3 新增)
 
 --------------------------------------------------------------------------------
 2. 核心优势 (每项附证据)
@@ -85,6 +86,8 @@ asn1-toolkit 架构分析与优化方案
   RRC Rel-8 / LPP Rel-14 / S1AP Rel-14 全量 fixtures; emit 产物作为
   CMake 静态库编译门 (emit 成功 ≠ 可编译, 这是 skill 固化的核心
   纪律); rrc_slice UPER/OER emit + 已知 hex 往返。
+  P0-3 后: 四大 fixture × 9 codec 全量 emit 产物 -fsyntax-only
+  门禁 (每族发射逻辑的产物首次全部经过编译验证)。
 
 优势 8: 零外部依赖
   无 Boost、无 multiprecision (BigInt 自研)、C++17 only
@@ -179,6 +182,56 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   - 验证: Release 298/298 + sanitizer 298/298 + RRC 产物字节一致 +
     PER/APER 金标准向量零回归。
 
+[P0-3] 非主 codec 产物从未验证可编译 — 每族发射器各自藏缺陷  ✅ 已完成 (2026-10-14)
+  现状证据: CMake fixture 门禁只链 fixture 的主 codec 库
+  (RRC/LPP→uper, S1AP→aper), 即 XER/EXER/CXER/JER/OER/COER/TLV
+  组合产物此前由任何门禁验证过。共享辅助 (default_val_cpp 等)
+  的签名改动只会被单 codec 门禁部分覆盖。
+  方案: 对四大 fixture (RRC/LPP/S1AP + 新 tlv_oer_golden) 用全
+  codec 位掩码 emit + g++ -fsyntax-only 逐族收敛错误; 每修一个
+  根因重测。
+  预期收益: 每族发射逻辑各有一份概念 bug 副本 (inline .value、
+  命名空间字面量、解引用优先级等), 只有该族产物被编译检查才
+  暴露; 此前这些缺陷全部潜伏。
+  风险: 无功能风险 (纯产物正确性); 修复面横跨 6 个发射文件。
+  验证: 4 fixture × 9 codec 全量 -fsyntax-only 零错误 +
+  Release/sanitizer 306/306。
+
+  实施结果:
+  - 根因 1 (XER 命名空间): emit_xer 的 Element 类型硬编码
+    asn1::exer::Element, Basic-XER/CXER 产物引用 E-XER 命名空间
+    却未 include 其头 (EXER 模式恰好自洽故此前不可见);
+    35 处全部改走 xml_ns()
+  - 根因 2 (解引用优先级): find_child 返回指针, 生成
+    *child.value().children (成员访问先于解引用) →
+    (*child.value()); XER 可选字段 *value.f.bits → (*value.f).bits
+  - 根因 3 (JER/XER inline 列表): 匿名 SEQUENCE OF/SET OF 误用
+    命名别名结构的 .value (OER/TLV 已修、JER/XER 漏网),
+    统一 is_named(rt) ? expr + ".value" : expr
+  - 根因 4 (嵌套 CHOICE): 替代结构体未限定 (Nested_rec_q::m_),
+    JER/XER 补上 OER/TLV 已有的 choice_ty 守卫; JER 选择解码
+    误发 return value; (Result<void> 函数) → Result<void>::success()
+  - 根因 5 (解码临时变量遮蔽, 五族全中): 固定命名 field 的临时
+    变量在嵌套可选 SEQUENCE 中遮蔽外层同名临时变量——而外层
+    临时变量正是赋值目标 expr, 嵌套可选字段全部赋错对象
+    (RRC 真实报错 field.X = std::move(field)); 新增
+    Emitter::temp_counter_, 统一 field<N>/alt<N>/xer_field<N>/
+    jer_field<N>
+  - 根因 6 (CHOICE 替代局部变量自遮蔽): const auto& alt =
+    std::get<N>(alt.value...) 推导前引用自身 (auto 推导错误),
+    PER/OER/TLV/XER 统一 alt<N>
+  - 顺带修复 (WIP 遗留): X.680 25.3/29.2 任一文本标签禁用整表
+    自动编号 (IR 实测 plain 保持 UNIVERSAL 2); default_val_cpp
+    改为按字段取默认值 (非约束 INTEGER 包 BigInteger::from_i64、
+    字符串剥离 lexer 引号); TLV EXPLICIT 同标签编自然 universal
+    标签 (X.690 8.5); OER 选择标签无 constructed 位 (X.696 8.7.2)
+  - 新 fixture: tests/fixtures/telecom/tlv_oer_golden.asn
+    (混合标签/DEFAULT/SET/SET OF/嵌套 CHOICE/扩展) + 8 项往返
+    测试 (字节级断言 30 0F 02 01 07 81 01 08 82 02 68 69
+    A3 03 01 01 FF; DEFAULT 省略/携带 83 01 63 / 84 03 62 79 65)
+  - 验证: 4 fixture × 9 codec -fsyntax-only 零错误; Release +
+    sanitizer 306/306, 零 ASan/UBSan
+
 [P1-1] 金标准差分验证从 PER 扩展到其余 codec
   现状证据: tests/per/golden 是唯一 oracle 差分; OER/BER/DER/JER/
   XER 等只有自往返测试 (自一致 ≠ 位布局正确, 见 skill 纪律)。
@@ -258,11 +311,15 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   以 RRC fixture 做前后编译耗时对比 + 全量 296 测试守门;
   同步更新 CMake 门禁确保 generated.cpp 真正被编译。✅ 已完成 2026-10-14
 第 2 步: P0-2 emit.cpp 按 codec 家族拆分 (先画依赖图再动手)。✅ 已完成 2026-10-14
+第 2.5 步: P0-3 全 codec 产物编译门禁 (非主 codec 产物从未验证可编译,
+  每族发射器各藏缺陷; 以 9 codec 全量 -fsyntax-only 门禁驱动修复)。
+  ✅ 已完成 2026-10-14
 第 3 步: P1-1 OER/BER/DER 金标准扩展 (正确性投资, 服务 3GPP R17+
   OER 方向)。
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。
 后续: P1-2 CER、P2-2 分文件 emit、P2-3 增量生成按需排期。
 
-每步验证口径统一: ctest 296/296 (Release + sanitizer) + 受影响
-fixture 的产物 g++ -fsyntax-only 0 error + 金标准向量零回归。
+每步验证口径统一: ctest 306/306 (Release + sanitizer) + 受影响
+fixture 的产物 g++ -fsyntax-only 0 error (全 codec 位掩码, 见 P0-3)
++ 金标准向量零回归。
 ================================================================================

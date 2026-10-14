@@ -79,7 +79,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 
 六、参考与文档
 --------------------------------------------------------------------------------
-- 架构设计: docs/ARCHITECTURE.md (383 行, 完整流水线、编码规则行为、阶段记录)
+- 架构设计: docs/ARCHITECTURE.md (414 行, 完整流水线、编码规则行为、阶段记录 1-42)
 - 参考树说明: docs/ARCHITECTURE.md 第 1 行 (pasn1/, asn1c, Python_asn1tools/, FFASN1dump/ 不属于本构建)
 - 版权头维护脚本: scripts/add_file_headers.py (自动添加 PROCODEC 头信息到 .cpp/.hpp)
 - 分析报告归档 (docs/analysis/):
@@ -92,7 +92,10 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 1. 构建时需要网络访问 (FetchContent 获取 GoogleTest); 如离线构建需预先缓存依赖
 2. 电信 fixtures 测试覆盖 parse + analyze + emit，不声称完整 3GPP 编解码完全对等
 3. 许可证文件尚未添加 (README 标注 TBD); 代码头已标注 PROCODEC 版权 (2026-2031)
-4. 后续工作已明确记录: 表约束类型化开放类型、完整编译 CI 为 Phase 41 之后任务
+4. 后续工作已明确记录: 表约束类型化开放类型已完成; 全 codec 产物编译门禁
+   (9 codec emit + -fsyntax-only) 已于 2026-10-14 完成 (见
+   docs/analysis/architecture_review_and_optimization.md P0-3);
+   许可证文件、PER/APER 协议级消息金标准向量扩展仍未完成
 
 八、快速命令清单
 --------------------------------------------------------------------------------

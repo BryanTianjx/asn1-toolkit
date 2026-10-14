@@ -19,6 +19,19 @@ typed view (`decoded_<field>`) fills the open-type bytes and governor id on
 encode. Full RRC/LPP/S1AP generated TUs compile as CMake gates; typed 3GPP
 codec parity against golden byte vectors is still outstanding.
 
+**Post-Phase-41 emitted-code hardening** (2026-10-14): the compile gates
+previously linked only each fixture's primary codec, so every other codec
+family's output was verified by nothing. Emitting RRC/LPP/S1AP and the new
+`tlv_oer_golden` fixture with the full 9-codec bitmask and syntax-checking the
+result exposed and fixed seven classes of emitter defects (XML runtime
+namespace hardcoded to `exer`, deref precedence in emitted expressions,
+inline list `.value` in JER/XER, nested-CHOICE alternative qualification,
+decode-temp shadowing, CHOICE alt-local self-shadowing, JER choice-decode
+return type), plus X.680 25.3 automatic-tagging rules, field-aware
+DEFAULT-value lowering (BigInteger/quote stripping), X.690 8.5 explicit-tag
+natural encoding, and the X.696 8.7.2 OER choice-tag constructed bit. All four
+fixtures now compile clean under all nine codecs.
+
 ## Pipeline
 
 ```text
@@ -318,6 +331,15 @@ GoogleTest, one binary per area, registered with CTest.
 - Checked-in hex vectors from X.691 examples.
 - Integration (Phase 11/39): `.asn` → `asn1cxx` → compile → encode → decode for
   Person across PER/OER/COER/BER/DER/JER and for the RRC telecom slice (UPER).
+- All-codec compile gate: RRC/LPP/S1AP/`tlv_oer_golden` emitted with the full
+  9-codec bitmask (`uper,ber,der,oer,coer,jer,xer,exer,cxer`) and
+  `g++ -fsyntax-only`-checked — every codec family carries its own copy of the
+  emitter logic, and each family had at least one defect only visible under its
+  own output.
+- `tlv_oer_golden` round-trips (`asn1_tlv_oer_golden_tests`): mixed
+  textual/untagged tags with byte-pinned DER (X.680 25.3), DEFAULT omission and
+  non-default carry (X.690 11.5), SET/SET OF/SEQUENCE OF, nested CHOICE, across
+  BER/DER/OER/JER.
 - Optional cross-check against pycrate/asn1c when present on `PATH`.
 
 ## Development phases
@@ -363,6 +385,7 @@ GoogleTest, one binary per area, registered with CTest.
 39. Validation — multi-codec Person + telecom emit gates (done)
 40. Full RRC/LPP/S1AP emit — nested names + parameterized IE fields (done)
 41. Review hardening — OCF re-resolve, DEFAULT, PER constraints, BitString, caps (done)
+42. All-codec emitted-code hardening — 9-codec compile gates (done): XER/EXER/CXER/JER/OER/COER/TLV output compile-verified for the first time; fixed XML namespace selection, deref precedence, inline-list `.value`, nested-CHOICE qualification, decode-temp and alt-local shadowing (unique `temp_counter_` names), JER choice-decode returns, X.680 25.3 automatic tagging, field-aware DEFAULT lowering, X.690 8.5 explicit-tag natural encoding, X.696 8.7.2 OER choice tag; `tlv_oer_golden` fixture + 8 round-trip tests
 
 ## Telecom validation (Phase 14 / 38 / 39 / 40)
 
@@ -373,8 +396,10 @@ GoogleTest, one binary per area, registered with CTest.
 | S1AP Rel-14 | `tests/fixtures/telecom/s1ap_14_4_0/` | parse + analyze + APER emit (ProtocolIE-Field) |
 | RRC slice | `tests/fixtures/telecom/rrc_slice/` | UPER/OER emit + UPER round-trip vs known hex |
 | Person | `examples/person.asn` | UPER/APER/OER/COER/BER/DER/JER compile round-trips |
+| tlv_oer_golden | `tests/fixtures/telecom/tlv_oer_golden.asn` | 9-codec compile gate + BER/DER/OER/JER round-trips with byte-pinned tags and DEFAULT behaviour |
 
-CTest: `asn1_telecom_tests`, `asn1_telecom_roundtrip_tests`, `asn1_codegen_roundtrip_tests`.
+CTest: `asn1_telecom_tests`, `asn1_telecom_roundtrip_tests`, `asn1_codegen_roundtrip_tests`,
+`asn1_tlv_oer_golden_tests`.
 See `tests/fixtures/telecom/README.md`. Not full 3GPP codec parity.
 
 ## Tradeoffs
