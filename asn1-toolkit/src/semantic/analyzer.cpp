@@ -411,15 +411,41 @@ ir::Tag make_ast_tag(const ast::Tag& t, ast::TagDefault module_default, bool for
 }
 
 ir::Tag component_tag(const ast::Type& field_type, ast::TagDefault module_default,
-                      std::uint64_t auto_index) {
+                      std::uint64_t auto_index, bool auto_tags) {
   const bool is_choice = dynamic_cast<const ast::ChoiceType*>(&field_type) != nullptr;
   if (field_type.tag()) {
     return make_ast_tag(*field_type.tag(), module_default, is_choice);
   }
-  if (module_default == ast::TagDefault::Automatic) {
+  if (auto_tags) {
     return ir::Tag{ir::TagClass::Context, auto_index, is_choice};
   }
   return builtin_tag_for(field_type);
+}
+
+// X.680 25.3 (SEQUENCE/SET) and 29.2 (CHOICE): automatic tagging applies to
+// a component list only when NO component is textually tagged — one manual
+// tag anywhere in the list disables automatic numbering for the whole list,
+// and untagged components keep their natural universal tags. Version
+// brackets are not "ComponentType" occurrences, so their manual tags do not
+// count (25.3 covers the first three ComponentType alternatives only).
+bool any_textual_component_tag(const std::vector<asn1::ast::NodePtr<asn1::ast::ComponentItem>>& items) {
+  for (const auto& item : items) {
+    if (dynamic_cast<const ast::VersionAdditionGroup*>(item.get())) {
+      continue;
+    }
+    if (const auto* comp = dynamic_cast<const ast::Component*>(item.get())) {
+      if (comp->type().tag()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool automatic_tags_selected(const ast::Module& mod,
+                             const std::vector<asn1::ast::NodePtr<asn1::ast::ComponentItem>>& items) {
+  return mod.tag_default() == ast::TagDefault::Automatic &&
+         !any_textual_component_tag(items);
 }
 
 struct LowerCtx {
@@ -1239,6 +1265,9 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     out.string.size = constraints::normalize_size(str->constraint(), ctx.diagnostics, val_resolver);
   } else if (const auto* seq = dynamic_cast<const ast::SequenceType*>(&type)) {
     out.kind = ir::TypeKind::Sequence;
+    // X.680 25.3: a single textual tag in the list disables automatic
+    // tagging for the whole list.
+    const bool auto_ok = automatic_tags_selected(ctx.mod, seq->items());
     std::uint64_t auto_index = 0;
     bool in_extensions = false;
     bool in_trailing_root = false;
@@ -1246,7 +1275,7 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
       ir::Field field;
       field.name = comp.name();
       field.presence = map_presence(comp.presence());
-      field.tag = component_tag(comp.type(), ctx.mod.tag_default(), auto_index);
+      field.tag = component_tag(comp.type(), ctx.mod.tag_default(), auto_index, auto_ok);
       ++auto_index;
       field.type = lower_type(
           ctx, comp.type(),
@@ -1327,6 +1356,8 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     }
   } else if (const auto* ch = dynamic_cast<const ast::ChoiceType*>(&type)) {
     out.kind = ir::TypeKind::Choice;
+    // X.680 29.2 mirrors 25.3 for choice alternative lists.
+    const bool auto_ok = automatic_tags_selected(ctx.mod, ch->alternatives());
     std::uint64_t auto_index = 0;
     bool in_extensions = false;
     std::function<void(const ast::ComponentItem&)> process =
@@ -1349,7 +1380,7 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
           ir::Field field;
           field.name = comp->name();
           field.presence = ir::Presence::Mandatory;
-          field.tag = component_tag(comp->type(), ctx.mod.tag_default(), auto_index);
+          field.tag = component_tag(comp->type(), ctx.mod.tag_default(), auto_index, auto_ok);
           ++auto_index;
           field.type = lower_type(
               ctx, comp->type(),
@@ -1375,6 +1406,8 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
         constraints::normalize_size(of->constraint(), ctx.diagnostics, val_resolver);
   } else if (const auto* set = dynamic_cast<const ast::SetType*>(&type)) {
     out.kind = ir::TypeKind::Set;
+    // X.680 25.3 also governs set component lists.
+    const bool auto_ok = automatic_tags_selected(ctx.mod, set->items());
     std::uint64_t auto_index = 0;
     bool in_extensions = false;
     bool in_trailing_root = false;
@@ -1382,7 +1415,7 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
       ir::Field field;
       field.name = comp.name();
       field.presence = map_presence(comp.presence());
-      field.tag = component_tag(comp.type(), ctx.mod.tag_default(), auto_index);
+      field.tag = component_tag(comp.type(), ctx.mod.tag_default(), auto_index, auto_ok);
       ++auto_index;
       field.type = lower_type(
           ctx, comp.type(),

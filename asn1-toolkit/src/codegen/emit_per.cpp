@@ -224,16 +224,17 @@ void Emitter::emit_extension_group_decode(std::ostream& out, const ir::Extension
         const ir::Type& ft = resolve(model_, f.type);
         if (field_has_presence_bit(f)) {
           out << ind << "  if (gbm.value().optionals.size() > " << opt_i
-              << " && gbm.value().optionals[" << opt_i << "]) {\n"
-              << ind << "    " << type_cpp(f.type) << " field{};\n";
-          emit_field_decode(out, ft, "field", aper, ind + "    ");
+              << " && gbm.value().optionals[" << opt_i << "]) {\n";
+          const std::string tmp = "field" + std::to_string(temp_counter_++);
+          out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+          emit_field_decode(out, ft, tmp, aper, ind + "    ");
           if (f.presence == ir::Presence::Optional) {
-            out << ind << "    " << expr << "." << fname << " = std::move(field);\n";
+            out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
           } else {
-            out << ind << "    " << expr << "." << fname << " = std::move(field);\n";
+            out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
           }
           if (f.presence == ir::Presence::Default && f.default_value) {
-            const std::string def_expr = default_val_cpp(*f.default_value);
+            const std::string def_expr = default_val_cpp(f);
             if (!def_expr.empty()) {
               out << ind << "  } else {\n"
                   << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
@@ -242,10 +243,11 @@ void Emitter::emit_extension_group_decode(std::ostream& out, const ir::Extension
           out << ind << "  }\n";
           ++opt_i;
         } else {
-          out << ind << "  {\n"
-              << ind << "    " << type_cpp(f.type) << " field{};\n";
-          emit_field_decode(out, ft, "field", aper, ind + "    ");
-          out << ind << "    " << expr << "." << fname << " = std::move(field);\n"
+          out << ind << "  {\n";
+          const std::string tmp = "field" + std::to_string(temp_counter_++);
+          out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+          emit_field_decode(out, ft, tmp, aper, ind + "    ");
+          out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n"
               << ind << "  }\n";
         }
       }
@@ -254,10 +256,11 @@ void Emitter::emit_extension_group_decode(std::ostream& out, const ir::Extension
       for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
-        out << ind << "{\n"
-            << ind << "  " << type_cpp(f.type) << " field{};\n";
-        emit_field_decode(out, ft, "field", aper, ind + "  ");
-        out << ind << "  " << expr << "." << fname << " = std::move(field);\n"
+        out << ind << "{\n";
+        const std::string tmp = "field" + std::to_string(temp_counter_++);
+        out << ind << "  " << type_cpp(f.type) << " " << tmp << "{};\n";
+        emit_field_decode(out, ft, tmp, aper, ind + "  ");
+        out << ind << "  " << expr << "." << fname << " = std::move(" << tmp << ");\n"
             << ind << "}\n";
       }
     }
@@ -274,7 +277,7 @@ void Emitter::emit_root_fields_encode(std::ostream& out, const std::vector<ir::F
         out << ind << "}\n";
       } else if (f.presence == ir::Presence::Default) {
         if (f.default_value) {
-          std::string def_val = default_val_cpp(*f.default_value);
+          std::string def_val = default_val_cpp(f);
           if (!def_val.empty()) {
             out << ind << "if (" << expr << "." << fname << " != " << def_val << ") {\n";
             emit_field_encode(out, ft, expr + "." + fname, aper, ind + "  ");
@@ -352,7 +355,7 @@ void Emitter::emit_sequence_like_encode(std::ostream& out, const ir::SequenceDes
       out << ind << "  opt[" << i << "] = ";
       if (pf.presence == ir::Presence::Default) {
         if (pf.default_value) {
-          std::string def_val = default_val_cpp(*pf.default_value);
+          std::string def_val = default_val_cpp(pf);
           if (!def_val.empty()) {
             out << "(" << expr << "." << cpp_ident(pf.name) << " != " << def_val << ") ? 1 : 0;\n";
           } else {
@@ -438,10 +441,11 @@ void Emitter::emit_root_fields_decode(std::ostream& out, const std::vector<ir::F
       const ir::Type& ft = resolve(model_, f.type);
       if (f.presence == ir::Presence::Optional) {
         out << ind << "  if (pre.value().optionals.size() > " << opt_i
-            << " && pre.value().optionals[" << opt_i << "]) {\n"
-            << ind << "    " << type_cpp(f.type) << " field{};\n";
-        emit_field_decode(out, ft, "field", aper, ind + "    ");
-        out << ind << "    " << expr << "." << fname << " = std::move(field);\n"
+            << " && pre.value().optionals[" << opt_i << "]) {\n";
+        const std::string tmp = "field" + std::to_string(temp_counter_++);
+        out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+        emit_field_decode(out, ft, tmp, aper, ind + "    ");
+        out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n"
             << ind << "  } else {\n"
             << ind << "    " << expr << "." << fname << " = std::nullopt;\n"
             << ind << "  }\n";
@@ -451,7 +455,7 @@ void Emitter::emit_root_fields_decode(std::ostream& out, const std::vector<ir::F
             << " && pre.value().optionals[" << opt_i << "]) {\n";
         emit_field_decode(out, ft, expr + "." + fname, aper, ind + "    ");
         if (f.default_value) {
-          const std::string def_expr = default_val_cpp(*f.default_value);
+          const std::string def_expr = default_val_cpp(f);
           if (!def_expr.empty()) {
             out << ind << "  } else {\n"
                 << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
@@ -710,9 +714,13 @@ void Emitter::emit_encode_body(std::ostream& out, const ir::Type& t, const std::
           const ir::Field& f = t.choice.alternatives[i];
           const ir::Type& ft = resolve(model_, f.type);
           out << ind << "      case " << i << ": {\n";
-          out << ind << "        const auto& alt = std::get<" << i << ">(" << expr
+          // Unique local: a nested CHOICE alternative re-enters this block
+          // with expr = "<outer alt local>.value", and a duplicate `alt`
+          // shadows the initializer it is deduced from.
+          const std::string alt_local = "alt" + std::to_string(temp_counter_++);
+          out << ind << "        const auto& " << alt_local << " = std::get<" << i << ">(" << expr
               << ".alt);\n";
-          emit_field_encode(out, ft, "alt.value", aper, ind + "        ");
+          emit_field_encode(out, ft, alt_local + ".value", aper, ind + "        ");
           out << ind << "        break;\n";
           out << ind << "      }\n";
         }
@@ -729,9 +737,11 @@ void Emitter::emit_encode_body(std::ostream& out, const ir::Type& t, const std::
           const ir::Type& ft = resolve(model_, f.type);
           const std::size_t vi = root_n + i;
           out << ind << "        case " << vi << ": {\n";
-          out << ind << "          const auto& alt = std::get<" << vi << ">(" << expr
-              << ".alt);\n";
-          emit_field_encode(out, ft, "alt.value", aper, ind + "          ");
+          // Unique local: see the root-alternative case above.
+          const std::string alt_local = "alt" + std::to_string(temp_counter_++);
+          out << ind << "          const auto& " << alt_local << " = std::get<" << vi << ">("
+              << expr << ".alt);\n";
+          emit_field_encode(out, ft, alt_local + ".value", aper, ind + "          ");
           out << ind << "          break;\n";
           out << ind << "        }\n";
         }

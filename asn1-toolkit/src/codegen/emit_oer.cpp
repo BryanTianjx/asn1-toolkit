@@ -226,19 +226,21 @@ void Emitter::emit_oer_extension_group_decode(std::ostream& out, const ir::Exten
           out << ind << "  if (gbm.value().optionals.size() > " << opt_i
               << " && gbm.value().optionals[" << opt_i << "]) {\n";
           if (f.presence == ir::Presence::Optional) {
-            out << ind << "    " << type_cpp(f.type) << " field{};\n";
-            emit_oer_field_decode(out, ft, "field", ind + "    ");
-            out << ind << "    " << expr << "." << fname << " = std::move(field);\n";
+            const std::string tmp = "field" + std::to_string(temp_counter_++);
+            out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+            emit_oer_field_decode(out, ft, tmp, ind + "    ");
+            out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
           } else {
             emit_oer_field_decode(out, ft, expr + "." + fname, ind + "    ");
           }
           out << ind << "  }\n";
           ++opt_i;
         } else {
-          out << ind << "  {\n"
-              << ind << "    " << type_cpp(f.type) << " field{};\n";
-          emit_oer_field_decode(out, ft, "field", ind + "    ");
-          out << ind << "    " << expr << "." << fname << " = std::move(field);\n"
+          out << ind << "  {\n";
+          const std::string tmp = "field" + std::to_string(temp_counter_++);
+          out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+          emit_oer_field_decode(out, ft, tmp, ind + "    ");
+          out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n"
               << ind << "  }\n";
         }
       }
@@ -247,10 +249,11 @@ void Emitter::emit_oer_extension_group_decode(std::ostream& out, const ir::Exten
       for (const ir::Field& f : group.fields) {
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
-        out << ind << "{\n"
-            << ind << "  " << type_cpp(f.type) << " field{};\n";
-        emit_oer_field_decode(out, ft, "field", ind + "  ");
-        out << ind << "  " << expr << "." << fname << " = std::move(field);\n"
+        out << ind << "{\n";
+        const std::string tmp = "field" + std::to_string(temp_counter_++);
+        out << ind << "  " << type_cpp(f.type) << " " << tmp << "{};\n";
+        emit_oer_field_decode(out, ft, tmp, ind + "  ");
+        out << ind << "  " << expr << "." << fname << " = std::move(" << tmp << ");\n"
             << ind << "}\n";
       }
     }
@@ -277,7 +280,7 @@ void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc
       out << ind << "  opt[" << i << "] = ";
       if (pf.presence == ir::Presence::Default) {
         if (pf.default_value) {
-          std::string def_val = default_val_cpp(*pf.default_value);
+          std::string def_val = default_val_cpp(pf);
           if (!def_val.empty()) {
             out << "(" << expr << "." << cpp_ident(pf.name) << " != " << def_val << ");\n";
           } else {
@@ -319,7 +322,7 @@ void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc
           out << ind << "}\n";
         } else if (f.presence == ir::Presence::Default) {
           if (f.default_value) {
-            std::string def_val = default_val_cpp(*f.default_value);
+            std::string def_val = default_val_cpp(f);
             if (!def_val.empty()) {
               out << ind << "if (" << expr << "." << fname << " != " << def_val << ") {\n";
               emit_oer_field_encode(out, ft, expr + "." + fname, ind + "  ");
@@ -394,10 +397,11 @@ void Emitter::emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc
         const ir::Type& ft = resolve(model_, f.type);
         if (f.presence == ir::Presence::Optional) {
           out << ind << "  if (pre.value().optionals.size() > " << opt_i
-              << " && pre.value().optionals[" << opt_i << "]) {\n"
-              << ind << "    " << type_cpp(f.type) << " field{};\n";
-          emit_oer_field_decode(out, ft, "field", ind + "    ");
-          out << ind << "    " << expr << "." << fname << " = std::move(field);\n"
+              << " && pre.value().optionals[" << opt_i << "]) {\n";
+          const std::string tmp = "field" + std::to_string(temp_counter_++);
+          out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+          emit_oer_field_decode(out, ft, tmp, ind + "    ");
+          out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n"
               << ind << "  } else {\n"
               << ind << "    " << expr << "." << fname << " = std::nullopt;\n"
               << ind << "  }\n";
@@ -407,7 +411,7 @@ void Emitter::emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc
               << " && pre.value().optionals[" << opt_i << "]) {\n";
           emit_oer_field_decode(out, ft, expr + "." + fname, ind + "    ");
           if (f.default_value) {
-            const std::string def_expr = default_val_cpp(*f.default_value);
+            const std::string def_expr = default_val_cpp(f);
             if (!def_expr.empty()) {
               out << ind << "  } else {\n"
                   << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
@@ -512,11 +516,14 @@ void Emitter::emit_oer_encode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         if (oer_use_coer() && rt.kind == ir::TypeKind::SetOf) {
           out << ind << "{\n";
           out << ind << "  std::vector<std::vector<std::uint8_t>> parts;\n";
-          out << ind << "  parts.reserve(" << expr << ".value.size());\n";
-          out << ind << "  for (const auto& elem : " << expr << ".value) {\n";
+          out << ind << "  parts.reserve(" << vec << ".size());\n";
+          out << ind << "  for (const auto& elem : " << vec << ") {\n";
           out << ind << "    asn1::ByteWriter ew;\n";
           out << ind << "    {\n";
           out << ind << "      asn1::ByteWriter& w = ew;\n";
@@ -527,9 +534,9 @@ void Emitter::emit_oer_encode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  " << oer_ns() << "::encode_set_of(w, std::move(parts));\n";
           out << ind << "}\n";
         } else {
-          out << ind << oer_ns() << "::encode_sequence_of_length(w, " << expr
-              << ".value.size());\n";
-          out << ind << "for (const auto& elem : " << expr << ".value) {\n";
+          out << ind << oer_ns() << "::encode_sequence_of_length(w, " << vec
+              << ".size());\n";
+          out << ind << "for (const auto& elem : " << vec << ") {\n";
           emit_oer_field_encode(out, elem, "elem", ind + "  ");
           out << ind << "}\n";
         }
@@ -552,18 +559,26 @@ void Emitter::emit_oer_encode_body(std::ostream& out, const ir::Type& t, const s
           const ir::Type& ft = resolve(model_, f.type);
           const bool is_ext = i >= root_n;
           out << ind << "    case " << i << ": {\n";
-          out << ind << "      const auto& alt = std::get<" << i << ">(" << expr << ".alt);\n";
+          // Unique local: a nested CHOICE alternative re-enters this block
+          // with expr = "<outer alt local>.value", and a duplicate `alt`
+          // shadows the initializer it is deduced from.
+          const std::string alt_local = "alt" + std::to_string(temp_counter_++);
+          out << ind << "      const auto& " << alt_local << " = std::get<" << i << ">(" << expr
+              << ".alt);\n";
+          // X.696 8.7.2: the OER tag octet carries class (bits 8-7) and tag
+          // number (bits 6-1) only — there is no constructed bit, so the
+          // tag is the same for primitive and constructed alternatives.
           out << ind << "      " << oer_ns() << "::encode_choice_tag(w, " << f.tag.number << "u, "
-              << (type_is_constructed(ft) ? "true" : "false") << ");\n";
+              << "false);\n";
           if (is_ext) {
             out << ind << "      asn1::ByteWriter ow;\n";
             out << ind << "      {\n";
             out << ind << "        asn1::ByteWriter& w = ow;\n";
-            emit_oer_field_encode(out, ft, "alt.value", ind + "        ");
+            emit_oer_field_encode(out, ft, alt_local + ".value", ind + "        ");
             out << ind << "      }\n";
             out << ind << "      " << oer_ns() << "::encode_open_type(w, ow.take());\n";
           } else {
-            emit_oer_field_encode(out, ft, "alt.value", ind + "      ");
+            emit_oer_field_encode(out, ft, alt_local + ".value", ind + "      ");
           }
           out << ind << "      break;\n";
           out << ind << "    }\n";
@@ -687,12 +702,15 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n"
             << ind << "  auto n = " << oer_ns() << "::decode_sequence_of_length(r);\n"
             << ind << "  if (!n) return n.error();\n"
             << ind << "  if (n.value() > 65536) return asn1::make_error(asn1::Error::Code::LengthOverflow, r.offset(), \"OER sequence of count exceeds safe limit\");\n"
-            << ind << "  " << expr << ".value.clear();\n"
-            << ind << "  " << expr << ".value.reserve(std::min<std::size_t>(n.value(), 1024));\n";
+            << ind << "  " << vec << ".clear();\n"
+            << ind << "  " << vec << ".reserve(std::min<std::size_t>(n.value(), 1024));\n";
         if (oer_use_coer() && rt.kind == ir::TypeKind::SetOf) {
           out << ind << "  std::vector<std::vector<std::uint8_t>> parts;\n"
               << ind << "  parts.reserve(std::min<std::size_t>(n.value(), 1024));\n"
@@ -707,7 +725,7 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
               << ind << "    const std::size_t used = rem.size() - er.remaining();\n"
               << ind << "    parts.emplace_back(rem.data(), rem.data() + used);\n"
               << ind << "    if (auto skip = r.read(used); !skip) return skip.error();\n"
-              << ind << "    " << expr << ".value.push_back(std::move(elem));\n"
+              << ind << "    " << vec << ".push_back(std::move(elem));\n"
               << ind << "  }\n"
               << ind << "  if (auto ord = " << oer_ns()
               << "::require_set_of_order(parts); !ord) return ord.error();\n";
@@ -715,7 +733,7 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  for (std::size_t i = 0; i < n.value(); ++i) {\n"
               << ind << "    " << type_cpp(elem_id) << " elem{};\n";
           emit_oer_field_decode(out, elem, "elem", ind + "    ");
-          out << ind << "    " << expr << ".value.push_back(std::move(elem));\n"
+          out << ind << "    " << vec << ".push_back(std::move(elem));\n"
               << ind << "  }\n";
         }
         out << ind << "}\n";

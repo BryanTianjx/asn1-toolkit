@@ -887,23 +887,40 @@ void Emitter::emit_ext_group_field_present(std::ostream& out, const ir::Field& f
    *  Parameters  : vid — ir::ValueId vid
    *  Returns     : std::string
    */
-std::string Emitter::default_val_cpp(ir::ValueId vid) {
-    if (vid >= model_.arena.value_count()) return "";
-    const ir::Value& val = model_.arena.get_value(vid);
+std::string Emitter::default_val_cpp(const ir::Field& f) {
+    if (!f.default_value) return "";
+    const ir::Value& val = model_.arena.get_value(*f.default_value);
+    std::string base;
     switch (val.kind) {
       case ir::ValueKind::Boolean:
-        return val.boolean ? "true" : "false";
+        base = val.boolean ? "true" : "false";
+        break;
       case ir::ValueKind::Integer:
         if (val.integer.as_i64) {
-          return std::to_string(*val.integer.as_i64);
+          base = std::to_string(*val.integer.as_i64);
         }
         break;
-      case ir::ValueKind::String:
-        return "\"" + val.text + "\"";
+      case ir::ValueKind::String: {
+        // The IR may carry character-string literals with their quotes
+        // still attached (lexer capture); normalise before wrapping.
+        std::string s = val.text;
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+          s = s.substr(1, s.size() - 2);
+        }
+        base = "\"" + s + "\"";
+        break;
+      }
       default:
         break;
     }
-    return "";
+    if (base.empty()) return "";
+    // An unconstrained INTEGER member is BigInteger: a bare int literal
+    // neither converts to it nor compares with it.
+    const ir::Type& ft = resolve(model_, f.type);
+    if (ft.kind == ir::TypeKind::Integer && integer_is_bigint(ft.integer)) {
+      return "asn1::BigInteger::from_i64(" + base + ")";
+    }
+    return base;
   }
 
 void Emitter::emit_struct_fields(std::ostream& out, const std::vector<ir::Field>& fields,
@@ -915,8 +932,8 @@ void Emitter::emit_struct_fields(std::ostream& out, const std::vector<ir::Field>
         out << "  std::optional<" << field_ty << "> " << field_name << ";\n";
       } else {
         std::string def_init;
-        if (f.presence == ir::Presence::Default && f.default_value) {
-          std::string v = default_val_cpp(*f.default_value);
+        if (f.presence == ir::Presence::Default) {
+          std::string v = default_val_cpp(f);
           if (!v.empty()) {
             def_init = " = " + v;
           }

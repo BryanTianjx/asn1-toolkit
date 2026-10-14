@@ -136,7 +136,7 @@ void Emitter::emit_xer_field_encode_expr(std::ostream& out, const ir::Type& ft,
     if (is_named(ft)) {
       out << "encode_" << xml_fn_suffix() << "(" << expr << ");\n";
     } else {
-      out << "([&]() -> asn1::Result<asn1::exer::Element> {\n";
+      out << "([&]() -> asn1::Result<" << xml_ns() << "::Element> {\n";
       emit_xer_encode_body(out, ft, expr, ind);
       out << ind << "})();\n";
     }
@@ -166,13 +166,13 @@ void Emitter::emit_xer_codec_fns(std::ostream& out, ir::TypeId id) {
     const std::string name = named_type_cpp(t);
     const char* suf = xml_fn_suffix();
     std::ostream* body = begin_codec_fn(
-        out, std::string("asn1::Result<asn1::exer::Element> encode_") + suf +
+        out, std::string("asn1::Result<") + xml_ns() + "::Element> encode_" + suf +
                 "(const " + name + "& value)");
     emit_xer_encode_body(*body, t, "value", "  ");
     *body << "}\n\n";
 
     body = begin_codec_fn(out, std::string("asn1::Result<void> decode_") + suf +
-                                   "(const asn1::exer::Element& el, " + name +
+                                   "(const " + xml_ns() + "::Element& el, " + name +
                                    "& value)");
     emit_xer_decode_body(*body, t, "value", "el", "  ");
     *body << "  return asn1::Result<void>::success();\n}\n\n";
@@ -188,74 +188,74 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
     switch (rt.kind) {
       case ir::TypeKind::Boolean:
         if (exer_mode && rt.exer.text) {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "asn1::exer::encode_boolean_text(\"" << el_name << "\", " << expr << "));\n";
         } else {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::encode_boolean(\"" << el_name << "\", " << expr << "));\n";
         }
         break;
       case ir::TypeKind::Null:
-        out << ind << "return asn1::Result<asn1::exer::Element>::success("
+        out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
             << "" << xml_ns() << "::encode_null(\"" << el_name << "\"));\n";
         break;
       case ir::TypeKind::Integer:
         if (integer_is_bigint(rt.integer)) {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::encode_integer(\"" << el_name << "\", " << expr << "));\n";
         } else {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::encode_integer(\"" << el_name << "\", static_cast<std::int64_t>("
               << expr << ")));\n";
         }
         break;
       case ir::TypeKind::OctetString:
         if (exer_mode && rt.exer.base64) {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "asn1::exer::encode_octet_string_base64(\"" << el_name
               << "\", asn1::Span<const std::uint8_t>(" << expr << ".data(), " << expr
               << ".size())));\n";
         } else {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::encode_octet_string(\"" << el_name
               << "\", asn1::Span<const std::uint8_t>(" << expr << ".data(), " << expr
               << ".size())));\n";
         }
         break;
       case ir::TypeKind::BitString:
-        out << ind << "return asn1::Result<asn1::exer::Element>::success("
+        out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
             << "" << xml_ns() << "::encode_bit_string(\"" << el_name
             << "\", asn1::Span<const std::uint8_t>(" << expr << ".bits.data(), " << expr
             << ".bits.size()), " << expr << ".bit_length));\n";
         break;
       case ir::TypeKind::String:
-        out << ind << "return asn1::Result<asn1::exer::Element>::success("
+        out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
             << "" << xml_ns() << "::encode_utf8_string(\"" << el_name << "\", " << expr << "));\n";
         break;
       case ir::TypeKind::ObjectIdentifier:
       case ir::TypeKind::RelativeOid:
-        out << ind << "return asn1::Result<asn1::exer::Element>::success("
+        out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
             << "" << xml_ns() << "::encode_object_identifier(\"" << el_name
             << "\", asn1::Span<const std::uint64_t>(" << expr << ".data(), " << expr
             << ".size())));\n";
         break;
       case ir::TypeKind::Real:
-        out << ind << "return asn1::Result<asn1::exer::Element>::success("
+        out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
             << "" << xml_ns() << "::encode_real(\"" << el_name << "\", " << expr << "));\n";
         break;
       case ir::TypeKind::Enumerated: {
         if (exer_mode && rt.exer.use_number) {
-          out << ind << "return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
               << "asn1::exer::encode_enumerated_number(\"" << el_name
               << "\", static_cast<std::int64_t>(" << expr << ")));\n";
         } else {
           emit_xer_enum_id_switch(out, rt, expr, ind);
           if (exer_mode && rt.exer.text) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_enumerated_text(\"" << el_name
                 << "\", xer_enum_id));\n";
           } else {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "" << xml_ns() << "::encode_enumerated(\"" << el_name << "\", xer_enum_id));\n";
           }
         }
@@ -266,42 +266,45 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF / SET OF lowers to an alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         if (exer_mode && rt.exer.list) {
           if (elem.kind == ir::TypeKind::String) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
-                << "asn1::exer::encode_list_of_strings(\"" << el_name << "\", " << expr
-                << ".value));\n";
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
+                << "asn1::exer::encode_list_of_strings(\"" << el_name << "\", " << vec
+                << "));\n";
           } else if (elem.kind == ir::TypeKind::Integer && integer_is_bigint(elem.integer)) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
-                << "asn1::exer::encode_list_of_integers(\"" << el_name << "\", " << expr
-                << ".value));\n";
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
+                << "asn1::exer::encode_list_of_integers(\"" << el_name << "\", " << vec
+                << "));\n";
           } else if (elem.kind == ir::TypeKind::Integer) {
             out << ind << "{\n";
             out << ind << "  std::vector<std::int64_t> xer_list;\n";
-            out << ind << "  xer_list.reserve(" << expr << ".value.size());\n";
-            out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+            out << ind << "  xer_list.reserve(" << vec << ".size());\n";
+            out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
             out << ind << "    xer_list.push_back(static_cast<std::int64_t>(xer_item));\n";
             out << ind << "  }\n";
-            out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_integers(\"" << el_name
                 << "\", xer_list));\n";
             out << ind << "}\n";
           } else if (elem.kind == ir::TypeKind::Enumerated && elem.exer.use_number) {
             out << ind << "{\n";
             out << ind << "  std::vector<std::int64_t> xer_list;\n";
-            out << ind << "  xer_list.reserve(" << expr << ".value.size());\n";
-            out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+            out << ind << "  xer_list.reserve(" << vec << ".size());\n";
+            out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
             out << ind << "    xer_list.push_back(static_cast<std::int64_t>(xer_item));\n";
             out << ind << "  }\n";
-            out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_integers(\"" << el_name
                 << "\", xer_list));\n";
             out << ind << "}\n";
           } else if (elem.kind == ir::TypeKind::Enumerated) {
             out << ind << "{\n";
             out << ind << "  std::vector<std::string> xer_list;\n";
-            out << ind << "  xer_list.reserve(" << expr << ".value.size());\n";
-            out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+            out << ind << "  xer_list.reserve(" << vec << ".size());\n";
+            out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
             out << ind << "    std::string xer_enum_id;\n";
             out << ind << "    switch (static_cast<std::int64_t>(xer_item)) {\n";
             for (const auto& nn : elem.enumerated.root) {
@@ -320,45 +323,44 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
             out << ind << "    }\n";
             out << ind << "    xer_list.push_back(std::move(xer_enum_id));\n";
             out << ind << "  }\n";
-            out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_strings(\"" << el_name
                 << "\", xer_list));\n";
             out << ind << "}\n";
           } else if (elem.kind == ir::TypeKind::Boolean) {
             out << ind << "{\n";
             out << ind << "  std::vector<std::uint8_t> xer_list;\n";
-            out << ind << "  xer_list.reserve(" << expr << ".value.size());\n";
-            out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+            out << ind << "  xer_list.reserve(" << vec << ".size());\n";
+            out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
             out << ind << "    xer_list.push_back(xer_item ? 1 : 0);\n";
             out << ind << "  }\n";
-            out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_booleans(\"" << el_name
                 << "\", xer_list));\n";
             out << ind << "}\n";
           } else if (elem.kind == ir::TypeKind::ObjectIdentifier ||
                      elem.kind == ir::TypeKind::RelativeOid) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_object_identifiers(\"" << el_name
-                << "\", " << expr << ".value));\n";
+                << "\", " << vec << "));\n";
           } else if (elem.kind == ir::TypeKind::Real) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
-                << "asn1::exer::encode_list_of_reals(\"" << el_name << "\", " << expr
-                << ".value));\n";
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
+                << "asn1::exer::encode_list_of_reals(\"" << el_name << "\", " << vec << "));\n";
           } else if (elem.kind == ir::TypeKind::OctetString) {
-            out << ind << "return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_octet_strings(\"" << el_name << "\", "
-                << expr << ".value));\n";
+                << vec << "));\n";
           } else if (elem.kind == ir::TypeKind::BitString) {
             out << ind << "{\n";
             out << ind << "  std::vector<asn1::xer::BitStringValue> xer_list;\n";
-            out << ind << "  xer_list.reserve(" << expr << ".value.size());\n";
-            out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+            out << ind << "  xer_list.reserve(" << vec << ".size());\n";
+            out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
             out << ind << "    asn1::xer::BitStringValue bs;\n";
             out << ind << "    bs.bits = xer_item.bits;\n";
             out << ind << "    bs.bit_length = xer_item.bit_length;\n";
             out << ind << "    xer_list.push_back(std::move(bs));\n";
             out << ind << "  }\n";
-            out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+            out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
                 << "asn1::exer::encode_list_of_bit_strings(\"" << el_name
                 << "\", xer_list));\n";
             out << ind << "}\n";
@@ -368,15 +370,15 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
           }
         } else {
           out << ind << "{\n";
-          out << ind << "  std::vector<asn1::exer::Element> xer_items;\n";
-          out << ind << "  xer_items.reserve(" << expr << ".value.size());\n";
-          out << ind << "  for (const auto& xer_item : " << expr << ".value) {\n";
+          out << ind << "  std::vector<" << xml_ns() << "::Element> xer_items;\n";
+          out << ind << "  xer_items.reserve(" << vec << ".size());\n";
+          out << ind << "  for (const auto& xer_item : " << vec << ") {\n";
           out << ind << "    auto enc = ";
           emit_xer_field_encode_expr(out, elem, "xer_item", ind + "    ");
           out << ind << "    if (!enc) return enc.error();\n";
           out << ind << "    xer_items.push_back(std::move(enc.value()));\n";
           out << ind << "  }\n";
-          out << ind << "  return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::"
               << (xer_use_cxer() && rt.kind == ir::TypeKind::SetOf ? "encode_set_of"
                                                                   : "encode_sequence_of")
@@ -387,7 +389,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
       }
       case ir::TypeKind::InstanceOf:
         out << ind << "{\n";
-        out << ind << "  asn1::exer::Element root;\n";
+        out << ind << "  " << xml_ns() << "::Element root;\n";
         out << ind << "  root.name = \"" << el_name << "\";\n";
         out << ind << "  root.children.push_back(" << xml_ns() << "::encode_object_identifier(\"type-id\", "
             << "asn1::Span<const std::uint64_t>(" << expr
@@ -395,7 +397,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
         out << ind << "  root.children.push_back(" << xml_ns() << "::encode_octet_string(\"value\", "
             << "asn1::Span<const std::uint8_t>(" << expr << ".value.data(), " << expr
             << ".value.size())));\n";
-        out << ind << "  return asn1::Result<asn1::exer::Element>::success(std::move(root));\n";
+        out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success(std::move(root));\n";
         out << ind << "}\n";
         break;
       case ir::TypeKind::Choice: {
@@ -408,12 +410,17 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
           const ir::Type& ft = resolve(model_, f.type);
           const std::string xml_name = xer_field_name(f);
           out << ind << "    case " << i << ": {\n";
-          out << ind << "      const auto& alt = std::get<" << i << ">(" << expr << ".alt);\n";
+          // Unique local: a nested CHOICE alternative re-enters this block
+          // with expr = "<outer alt local>.value", and a duplicate `alt`
+          // shadows the initializer it is deduced from.
+          const std::string alt_local = "alt" + std::to_string(temp_counter_++);
+          out << ind << "      const auto& " << alt_local << " = std::get<" << i << ">(" << expr
+              << ".alt);\n";
           out << ind << "      auto enc = ";
-          emit_xer_field_encode_expr(out, ft, "alt.value", ind + "      ");
+          emit_xer_field_encode_expr(out, ft, alt_local + ".value", ind + "      ");
           out << ind << "      if (!enc) return enc.error();\n";
           out << ind << "      enc.value().name = \"" << xml_name << "\";\n";
-          out << ind << "      return asn1::Result<asn1::exer::Element>::success("
+          out << ind << "      return asn1::Result<" << xml_ns() << "::Element>::success("
               << "" << xml_ns() << "::encode_choice(\"" << el_name
               << "\", std::move(enc.value())));\n";
           out << ind << "    }\n";
@@ -430,7 +437,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
         const auto& fields =
             rt.kind == ir::TypeKind::Sequence ? rt.sequence.root : rt.set.root;
         out << ind << "{\n";
-        out << ind << "  asn1::exer::Element seq;\n";
+        out << ind << "  " << xml_ns() << "::Element seq;\n";
         out << ind << "  seq.name = \"" << el_name << "\";\n";
         for (const ir::Field& f : fields) {
           const std::string fname = cpp_ident(f.name);
@@ -479,7 +486,10 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
           if (optional) {
             out << ind << "  if (" << expr << "." << fname << ") {\n";
             out << ind << "    auto enc = ";
-            emit_xer_field_encode_expr(out, ft, "*" + expr + "." + fname, ind + "    ");
+            // Parenthesise the deref: member accesses are appended downstream
+            // (`(*value.f).bits`), and `*value.f.bits` would parse the member
+            // access onto the optional before the deref.
+            emit_xer_field_encode_expr(out, ft, "(*" + expr + "." + fname + ")", ind + "    ");
             out << ind << "    if (!enc) return enc.error();\n";
             if (exer_mode && f.exer.untagged) {
               out << ind << "    asn1::exer::append_untagged(seq, std::move(enc.value()));\n";
@@ -490,7 +500,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
             out << ind << "  }";
             if (exer_mode && f.exer.use_nil) {
               out << " else {\n";
-              out << ind << "    asn1::exer::Element nil;\n";
+              out << ind << "    " << xml_ns() << "::Element nil;\n";
               out << ind << "    nil.name = \"" << xml_name << "\";\n";
               out << ind << "    asn1::exer::set_nil(nil, true);\n";
               out << ind << "    seq.children.push_back(std::move(nil));\n";
@@ -500,7 +510,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
             }
           } else if (f.presence == ir::Presence::Default) {
             if (f.default_value) {
-              std::string def_val = default_val_cpp(*f.default_value);
+              std::string def_val = default_val_cpp(f);
               if (!def_val.empty()) {
                 out << ind << "  if (" << expr << "." << fname << " != " << def_val << ") {\n";
                 out << ind << "    auto enc = ";
@@ -541,7 +551,7 @@ void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const s
             out << ind << "  }\n";
           }
         }
-        out << ind << "  return asn1::Result<asn1::exer::Element>::success(std::move(seq));\n";
+        out << ind << "  return asn1::Result<" << xml_ns() << "::Element>::success(std::move(seq));\n";
         out << ind << "}\n";
         break;
       }
@@ -678,45 +688,48 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF / SET OF lowers to an alias struct with a
+        // `.value` member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n";
         if (exer_mode && rt.exer.list) {
           if (elem.kind == ir::TypeKind::String) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_strings(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value = std::move(tmp.value());\n";
+            out << ind << "  " << vec << " = std::move(tmp.value());\n";
           } else if (elem.kind == ir::TypeKind::Integer && integer_is_bigint(elem.integer)) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_big_integers(" << el_expr
                 << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value = std::move(tmp.value());\n";
+            out << ind << "  " << vec << " = std::move(tmp.value());\n";
           } else if (elem.kind == ir::TypeKind::Integer) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_integers(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(tmp.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(tmp.value().size());\n";
             out << ind << "  for (std::int64_t xer_n : tmp.value()) {\n";
-            out << ind << "    " << expr << ".value.push_back(static_cast<"
+            out << ind << "    " << vec << ".push_back(static_cast<"
                 << type_cpp(elem_id) << ">(xer_n));\n";
             out << ind << "  }\n";
           } else if (elem.kind == ir::TypeKind::Enumerated && elem.exer.use_number) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_integers(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(tmp.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(tmp.value().size());\n";
             out << ind << "  for (std::int64_t xer_n : tmp.value()) {\n";
-            out << ind << "    " << expr << ".value.push_back(static_cast<"
+            out << ind << "    " << vec << ".push_back(static_cast<"
                 << type_cpp(elem_id) << ">(xer_n));\n";
             out << ind << "  }\n";
           } else if (elem.kind == ir::TypeKind::Enumerated) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_strings(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(tmp.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(tmp.value().size());\n";
             out << ind << "  for (const auto& xer_tok : tmp.value()) {\n";
             out << ind << "    bool xer_enum_ok = false;\n";
             auto emit_match = [&](const ir::NamedNumber& nn) {
               out << ind << "    if (!xer_enum_ok && xer_tok == \"" << nn.name << "\") { "
-                  << expr << ".value.push_back(static_cast<" << type_cpp(elem_id) << ">("
+                  << vec << ".push_back(static_cast<" << type_cpp(elem_id) << ">("
                   << (nn.value.as_i64 ? *nn.value.as_i64 : 0)
                   << ")); xer_enum_ok = true; }\n";
             };
@@ -733,48 +746,48 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
           } else if (elem.kind == ir::TypeKind::Boolean) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_booleans(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(tmp.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(tmp.value().size());\n";
             out << ind << "  for (std::uint8_t xer_b : tmp.value()) {\n";
-            out << ind << "    " << expr << ".value.push_back(xer_b != 0);\n";
+            out << ind << "    " << vec << ".push_back(xer_b != 0);\n";
             out << ind << "  }\n";
           } else if (elem.kind == ir::TypeKind::ObjectIdentifier ||
                      elem.kind == ir::TypeKind::RelativeOid) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_object_identifiers("
                 << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value = std::move(tmp.value());\n";
+            out << ind << "  " << vec << " = std::move(tmp.value());\n";
           } else if (elem.kind == ir::TypeKind::Real) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_reals(" << el_expr << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value = std::move(tmp.value());\n";
+            out << ind << "  " << vec << " = std::move(tmp.value());\n";
           } else if (elem.kind == ir::TypeKind::OctetString) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_octet_strings(" << el_expr
                 << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value = std::move(tmp.value());\n";
+            out << ind << "  " << vec << " = std::move(tmp.value());\n";
           } else if (elem.kind == ir::TypeKind::BitString) {
             out << ind << "  auto tmp = asn1::exer::decode_list_of_bit_strings(" << el_expr
                 << ");\n";
             out << ind << "  if (!tmp) return tmp.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(tmp.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(tmp.value().size());\n";
             out << ind << "  for (auto& xer_bs : tmp.value()) {\n";
             out << ind << "    " << type_cpp(elem_id) << " xer_item{};\n";
             out << ind << "    xer_item.bits = std::move(xer_bs.bits);\n";
             out << ind << "    xer_item.bit_length = xer_bs.bit_length;\n";
-            out << ind << "    " << expr << ".value.push_back(std::move(xer_item));\n";
+            out << ind << "    " << vec << ".push_back(std::move(xer_item));\n";
             out << ind << "  }\n";
           } else {
             out << ind << "  return asn1::make_error(asn1::Error::Code::Unsupported, 0, "
                    "\"LIST decode requires a character-encodable element type\");\n";
           }
         } else {
-          out << ind << "  " << expr << ".value.clear();\n";
+          out << ind << "  " << vec << ".clear();\n";
           out << ind << "  for (const auto& xer_child : " << el_expr << ".children) {\n";
           out << ind << "    " << type_cpp(elem_id) << " xer_item{};\n";
           emit_xer_field_decode_stmt(out, elem, "xer_item", "xer_child", ind + "    ");
-          out << ind << "    " << expr << ".value.push_back(std::move(xer_item));\n";
+          out << ind << "    " << vec << ".push_back(std::move(xer_item));\n";
           out << ind << "  }\n";
         }
         out << ind << "}\n";
@@ -803,12 +816,19 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
                "\"CHOICE expects one child\");\n";
         out << ind << "  }\n";
         out << ind << "  const auto& xer_alt = " << el_expr << ".children[0];\n";
+        // A named CHOICE nests its alternative structs; qualify the name so
+        // nested choices (Nested_rec_q::m_) resolve from a free function.
+        const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
         for (const ir::Field* fp : choice_all_fields(rt.choice)) {
           const ir::Field& f = *fp;
           const ir::Type& ft = resolve(model_, f.type);
           const std::string xml_name = xer_field_name(f);
           out << ind << "  if (xer_alt.name == \"" << xml_name << "\") {\n";
-          out << ind << "    " << cpp_ident(f.name) << "_ alt{};\n";
+          if (!choice_ty.empty()) {
+            out << ind << "    " << choice_ty << "::" << cpp_ident(f.name) << "_ alt{};\n";
+          } else {
+            out << ind << "    " << cpp_ident(f.name) << "_ alt{};\n";
+          }
           emit_xer_field_decode_stmt(out, ft, "alt.value", "xer_alt", ind + "    ");
           out << ind << "    " << expr << ".alt = std::move(alt);\n";
           out << ind << "  } else";
@@ -866,9 +886,10 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
             // UNTAGGED: component content is merged into the parent element.
             out << ind << "  {\n";
             if (optional) {
-              out << ind << "    " << type_cpp(f.type) << " xer_field{};\n";
-              emit_xer_field_decode_stmt(out, ft, "xer_field", el_expr, ind + "    ");
-              out << ind << "    " << expr << "." << fname << " = std::move(xer_field);\n";
+              const std::string tmp = "xer_field" + std::to_string(temp_counter_++);
+              out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+              emit_xer_field_decode_stmt(out, ft, tmp, el_expr, ind + "    ");
+              out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
             } else {
               emit_xer_field_decode_stmt(out, ft, expr + "." + fname, el_expr, ind + "    ");
             }
@@ -887,26 +908,28 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
             }
             out << ind << "      } else {\n";
             if (optional) {
-              out << ind << "        " << type_cpp(f.type) << " xer_field{};\n";
-              emit_xer_field_decode_stmt(out, ft, "xer_field", "*child.value()",
+              const std::string tmp = "xer_field" + std::to_string(temp_counter_++);
+              out << ind << "        " << type_cpp(f.type) << " " << tmp << "{};\n";
+              emit_xer_field_decode_stmt(out, ft, tmp, "(*child.value())",
                                          ind + "        ");
-              out << ind << "        " << expr << "." << fname << " = std::move(xer_field);\n";
+              out << ind << "        " << expr << "." << fname << " = std::move(" << tmp << ");\n";
             } else {
-              emit_xer_field_decode_stmt(out, ft, expr + "." + fname, "*child.value()",
+              emit_xer_field_decode_stmt(out, ft, expr + "." + fname, "(*child.value())",
                                          ind + "        ");
             }
             out << ind << "      }\n";
           } else if (optional) {
-            out << ind << "      " << type_cpp(f.type) << " xer_field{};\n";
-            emit_xer_field_decode_stmt(out, ft, "xer_field", "*child.value()", ind + "      ");
-            out << ind << "      " << expr << "." << fname << " = std::move(xer_field);\n";
+            const std::string tmp = "xer_field" + std::to_string(temp_counter_++);
+            out << ind << "      " << type_cpp(f.type) << " " << tmp << "{};\n";
+            emit_xer_field_decode_stmt(out, ft, tmp, "(*child.value())", ind + "      ");
+            out << ind << "      " << expr << "." << fname << " = std::move(" << tmp << ");\n";
           } else {
-            emit_xer_field_decode_stmt(out, ft, expr + "." + fname, "*child.value()",
+            emit_xer_field_decode_stmt(out, ft, expr + "." + fname, "(*child.value())",
                                        ind + "      ");
           }
           out << ind << "    } else if (" << (f.presence == ir::Presence::Default ? "true" : "false") << ") {\n";
           if (f.presence == ir::Presence::Default && f.default_value) {
-            const std::string def_expr = default_val_cpp(*f.default_value);
+            const std::string def_expr = default_val_cpp(f);
             if (!def_expr.empty()) {
               out << ind << "      " << expr << "." << fname << " = " << def_expr << ";\n";
             }

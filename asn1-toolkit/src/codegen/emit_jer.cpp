@@ -180,9 +180,12 @@ void Emitter::emit_jer_encode_body(std::ostream& out, const ir::Type& t, const s
       }
       case ir::TypeKind::SequenceOf: {
         const ir::Type& elem = resolve(model_, rt.sequence_of.element);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "std::vector<asn1::jer::Value> jer_elems;\n";
-        out << ind << "jer_elems.reserve(" << expr << ".value.size());\n";
-        out << ind << "for (const auto& jer_elem : " << expr << ".value) {\n";
+        out << ind << "jer_elems.reserve(" << vec << ".size());\n";
+        out << ind << "for (const auto& jer_elem : " << vec << ") {\n";
         out << ind << "  auto jer_enc = ";
         emit_jer_field_encode_expr(out, elem, "jer_elem", ind + "  ");
         out << ind << "  if (!jer_enc) return jer_enc.error();\n";
@@ -194,6 +197,9 @@ void Emitter::emit_jer_encode_body(std::ostream& out, const ir::Type& t, const s
       }
       case ir::TypeKind::SetOf: {
         const ir::Type& elem = resolve(model_, rt.set_of.element);
+        // A named SET OF lowers to an alias struct with a `.value` member;
+        // an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         if (rt.jer.object) {
           const ir::Type* seq = &elem;
           if (seq->kind == ir::TypeKind::Referenced && seq->referenced.resolved != ir::kInvalidType) {
@@ -205,7 +211,7 @@ void Emitter::emit_jer_encode_body(std::ostream& out, const ir::Type& t, const s
             const std::string kname = cpp_ident(kf.name);
             const std::string vname = cpp_ident(vf.name);
             out << ind << "std::vector<std::pair<std::string, asn1::jer::Value>> jer_entries;\n";
-            out << ind << "for (const auto& jer_item : " << expr << ".value) {\n";
+            out << ind << "for (const auto& jer_item : " << vec << ") {\n";
             out << ind << "  auto jer_val = ";
             emit_jer_field_encode_expr(out, resolve(model_, vf.type), "jer_item." + vname,
                                        ind + "  ");
@@ -219,7 +225,7 @@ void Emitter::emit_jer_encode_body(std::ostream& out, const ir::Type& t, const s
           }
         }
         out << ind << "std::vector<asn1::jer::Value> jer_elems;\n";
-        out << ind << "for (const auto& jer_elem : " << expr << ".value) {\n";
+        out << ind << "for (const auto& jer_elem : " << vec << ") {\n";
         out << ind << "  auto jer_enc = ";
         emit_jer_field_encode_expr(out, elem, "jer_elem", ind + "  ");
         out << ind << "  if (!jer_enc) return jer_enc.error();\n";
@@ -290,7 +296,7 @@ void Emitter::emit_jer_encode_body(std::ostream& out, const ir::Type& t, const s
               out << ind << "}\n";
             } else if (f.presence == ir::Presence::Default) {
               if (f.default_value) {
-                std::string def_val = default_val_cpp(*f.default_value);
+                std::string def_val = default_val_cpp(f);
                 if (!def_val.empty()) {
                   out << ind << "if (" << expr << "." << fname << " != " << def_val << ") {\n";
                   out << ind << "  auto jer_m = ";
@@ -579,7 +585,7 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
                                          "jer_parts[" + std::to_string(idx) + "]",
                                          ind + "    ");
               if (f.default_value) {
-                const std::string def_expr = default_val_cpp(*f.default_value);
+                const std::string def_expr = default_val_cpp(f);
                 if (!def_expr.empty()) {
                   out << ind << "  } else {\n"
                       << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
@@ -609,14 +615,15 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
                 << key_expr << ")) {\n";
             out << ind << "    const asn1::jer::Value& jer_f = *jer_fm.value();\n";
             if (optional) {
-              out << ind << "    " << type_cpp(f.type) << " jer_field{};\n";
-              emit_jer_field_decode_stmt(out, ft, "jer_field", "jer_f", ind + "    ");
-              out << ind << "    " << expr << "." << fname << " = std::move(jer_field);\n";
+              const std::string tmp = "jer_field" + std::to_string(temp_counter_++);
+              out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+              emit_jer_field_decode_stmt(out, ft, tmp, "jer_f", ind + "    ");
+              out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
             } else {
               emit_jer_field_decode_stmt(out, ft, expr + "." + fname, "jer_f", ind + "    ");
             }
             if (f.presence == ir::Presence::Default && f.default_value) {
-              const std::string def_expr = default_val_cpp(*f.default_value);
+              const std::string def_expr = default_val_cpp(f);
               if (!def_expr.empty()) {
                 out << ind << "  } else {\n"
                     << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
@@ -650,6 +657,9 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  if (!jer_ch) return jer_ch.error();\n";
           out << ind << "  const std::string& jer_key = jer_ch.value().first;\n";
           out << ind << "  const asn1::jer::Value& jer_payload = *jer_ch.value().second;\n";
+          // A named CHOICE nests its alternative structs; qualify the name so
+          // nested choices (Nested_rec_q::m_) resolve from a free function.
+          const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
           for (const ir::Field* fp : choice_all_fields(rt.choice)) {
             const ir::Field& f = *fp;
             const ir::Type& ft = resolve(model_, f.type);
@@ -660,10 +670,14 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
                           f.jer_name_literal + "\")";
             }
             out << ind << "  if (" << key_match << ") {\n";
-            out << ind << "    " << cpp_ident(f.name) << "_ alt{};\n";
+            if (!choice_ty.empty()) {
+              out << ind << "    " << choice_ty << "::" << cpp_ident(f.name) << "_ alt{};\n";
+            } else {
+              out << ind << "    " << cpp_ident(f.name) << "_ alt{};\n";
+            }
             emit_jer_field_decode_stmt(out, ft, "alt.value", "jer_payload", ind + "    ");
             out << ind << "    " << expr << ".alt = std::move(alt);\n";
-            out << ind << "    return value;\n";
+            out << ind << "    return asn1::Result<void>::success();\n";
             out << ind << "  }\n";
           }
           out << ind << "  return asn1::make_error(asn1::Error::Code::InvalidArgument, 0, "
@@ -682,15 +696,18 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
       case ir::TypeKind::SequenceOf: {
         const ir::TypeId elem_id = rt.sequence_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n";
         out << ind << "  auto jer_arr = asn1::jeri::decode_sequence_of(" << v_expr << ");\n";
         out << ind << "  if (!jer_arr) return jer_arr.error();\n";
-        out << ind << "  " << expr << ".value.clear();\n";
-        out << ind << "  " << expr << ".value.reserve(jer_arr.value()->size());\n";
+        out << ind << "  " << vec << ".clear();\n";
+        out << ind << "  " << vec << ".reserve(jer_arr.value()->size());\n";
         out << ind << "  for (const auto& jer_item : *jer_arr.value()) {\n";
         out << ind << "    " << type_cpp(elem_id) << " jer_elem{};\n";
         emit_jer_field_decode_stmt(out, elem, "jer_elem", "jer_item", ind + "    ");
-        out << ind << "    " << expr << ".value.push_back(std::move(jer_elem));\n";
+        out << ind << "    " << vec << ".push_back(std::move(jer_elem));\n";
         out << ind << "  }\n";
         out << ind << "}\n";
         break;
@@ -698,6 +715,9 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
       case ir::TypeKind::SetOf: {
         const ir::TypeId elem_id = rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SET OF lowers to an alias struct with a `.value` member;
+        // an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         if (rt.jer.object) {
           const ir::Type* seq = &elem;
           if (seq->kind == ir::TypeKind::Referenced &&
@@ -714,14 +734,14 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
             out << ind << "  auto jer_obj = asn1::jeri::decode_set_of_object(" << v_expr
                 << ");\n";
             out << ind << "  if (!jer_obj) return jer_obj.error();\n";
-            out << ind << "  " << expr << ".value.clear();\n";
-            out << ind << "  " << expr << ".value.reserve(jer_obj.value().size());\n";
+            out << ind << "  " << vec << ".clear();\n";
+            out << ind << "  " << vec << ".reserve(jer_obj.value().size());\n";
             out << ind << "  for (const auto& jer_ent : jer_obj.value()) {\n";
             out << ind << "    " << type_cpp(elem_id) << " jer_elem{};\n";
             out << ind << "    jer_elem." << kname << " = jer_ent.first;\n";
             emit_jer_field_decode_stmt(out, vt, "jer_elem." + vname, "*jer_ent.second",
                                        ind + "    ");
-            out << ind << "    " << expr << ".value.push_back(std::move(jer_elem));\n";
+            out << ind << "    " << vec << ".push_back(std::move(jer_elem));\n";
             out << ind << "  }\n";
             out << ind << "}\n";
             break;
@@ -730,12 +750,12 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
         out << ind << "{\n";
         out << ind << "  auto jer_arr = asn1::jeri::decode_sequence_of(" << v_expr << ");\n";
         out << ind << "  if (!jer_arr) return jer_arr.error();\n";
-        out << ind << "  " << expr << ".value.clear();\n";
-        out << ind << "  " << expr << ".value.reserve(jer_arr.value()->size());\n";
+        out << ind << "  " << vec << ".clear();\n";
+        out << ind << "  " << vec << ".reserve(jer_arr.value()->size());\n";
         out << ind << "  for (const auto& jer_item : *jer_arr.value()) {\n";
         out << ind << "    " << type_cpp(elem_id) << " jer_elem{};\n";
         emit_jer_field_decode_stmt(out, elem, "jer_elem", "jer_item", ind + "    ");
-        out << ind << "    " << expr << ".value.push_back(std::move(jer_elem));\n";
+        out << ind << "    " << vec << ".push_back(std::move(jer_elem));\n";
         out << ind << "  }\n";
         out << ind << "}\n";
         break;

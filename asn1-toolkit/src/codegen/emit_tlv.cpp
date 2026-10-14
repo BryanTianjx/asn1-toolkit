@@ -161,7 +161,19 @@ void Emitter::emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const
           out << ind << "    if (auto r = encode_" << tlv_fn(der) << "(w, " << expr
               << "); !r) return r;\n";
         } else {
-          emit_tlv_encode_body(out, ft, expr, der, nullptr, ind + "    ");
+          // EXPLICIT wraps the type's NATURAL encoding. Lowering stamps the
+          // explicit component tag onto the inline type as well; when the
+          // two coincide the inner value must use the natural universal tag
+          // (X.690 8.5), not the explicit wrapper tag a second time.
+          const bool same_tag = ft.tag.cls == field->tag.cls &&
+                                ft.tag.number == field->tag.number &&
+                                ft.tag.is_explicit;
+          ir::Tag natural;
+          natural.cls = ir::TagClass::Universal;
+          natural.number = universal_number_for(ft);
+          natural.is_explicit = false;
+          emit_tlv_encode_body(out, ft, expr, der, same_tag ? &natural : nullptr,
+                               ind + "    ");
         }
         out << ind << "  }\n";
         out << ind << "  asn1::ber::encode_constructed(w, "
@@ -220,7 +232,7 @@ void Emitter::emit_tlv_sequence_field_encode(std::ostream& out, const ir::Field&
       emit_tlv_field_encode(out, ft, &f, expr + "." + fname + ".value()", der, ind + "  ");
       out << ind << "}\n";
     } else if (f.presence == ir::Presence::Default && f.default_value) {
-      const std::string def_val = default_val_cpp(*f.default_value);
+      const std::string def_val = default_val_cpp(f);
       if (!def_val.empty()) {
         out << ind << "if (" << expr << "." << fname << " != " << def_val << ") {\n";
         emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind + "  ");
@@ -328,7 +340,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
                 out << ind << "  }\n";
               } else if (f.presence == ir::Presence::Default) {
                 if (f.default_value) {
-                  std::string def_val = default_val_cpp(*f.default_value);
+                  std::string def_val = default_val_cpp(f);
                   if (!def_val.empty()) {
                     out << ind << "  if (" << expr << "." << fname << " != " << def_val << ") {\n";
                     out << ind << "    asn1::ByteWriter ew;\n";
@@ -390,11 +402,14 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n";
         if (der && rt.kind == ir::TypeKind::SetOf) {
           out << ind << "  std::vector<std::vector<std::uint8_t>> parts;\n";
-          out << ind << "  parts.reserve(" << expr << ".value.size());\n";
-          out << ind << "  for (const auto& elem : " << expr << ".value) {\n";
+          out << ind << "  parts.reserve(" << vec << ".size());\n";
+          out << ind << "  for (const auto& elem : " << vec << ") {\n";
           out << ind << "    asn1::ByteWriter ew;\n";
           out << ind << "    {\n";
           out << ind << "      asn1::ByteWriter& w = ew;\n";
@@ -410,7 +425,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  asn1::der::encode_set(w, std::move(parts), " << tag << ");\n";
         } else {
           out << ind << "  asn1::ByteWriter comps;\n";
-          out << ind << "  for (const auto& elem : " << expr << ".value) {\n";
+          out << ind << "  for (const auto& elem : " << vec << ") {\n";
           out << ind << "    asn1::ByteWriter& w = comps;\n";
           if (is_named(elem)) {
             out << ind << "    if (auto r = encode_" << tlv_fn(der)
@@ -439,8 +454,13 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
           const ir::Field& f = *all[i];
           const ir::Type& ft = resolve(model_, f.type);
           out << ind << "    case " << i << ": {\n";
-          out << ind << "      const auto& alt = std::get<" << i << ">(" << expr << ".alt);\n";
-          emit_tlv_field_encode(out, ft, &f, "alt.value", der, ind + "      ");
+          // Unique local: a nested CHOICE alternative re-enters this block
+          // with expr = "<outer alt local>.value", and a duplicate `alt`
+          // shadows the initializer it is deduced from.
+          const std::string alt_local = "alt" + std::to_string(temp_counter_++);
+          out << ind << "      const auto& " << alt_local << " = std::get<" << i << ">(" << expr
+              << ".alt);\n";
+          emit_tlv_field_encode(out, ft, &f, alt_local + ".value", der, ind + "      ");
           out << ind << "      break;\n";
           out << ind << "    }\n";
         }
@@ -603,6 +623,9 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         const ir::TypeId elem_id =
             rt.kind == ir::TypeKind::SequenceOf ? rt.sequence_of.element : rt.set_of.element;
         const ir::Type& elem = resolve(model_, elem_id);
+        // A named SEQUENCE OF lowers to an alias struct with a `.value`
+        // member; an inline (anonymous) one is a bare vector.
+        const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n";
         if (der && rt.kind == ir::TypeKind::SetOf) {
           out << ind << "  auto content = asn1::der::decode_set(r, " << tag << ");\n";
@@ -613,7 +636,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         }
         out << ind << "  if (!content) return content.error();\n";
         out << ind << "  asn1::ByteReader cr(content.value());\n";
-        out << ind << "  " << expr << ".value.clear();\n";
+        out << ind << "  " << vec << ".clear();\n";
         out << ind << "  while (cr.remaining() > 0) {\n";
         out << ind << "    " << type_cpp(elem_id) << " elem{};\n";
         out << ind << "    {\n";
@@ -625,7 +648,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
           emit_tlv_decode_body(out, elem, "elem", der, nullptr, ind + "      ");
         }
         out << ind << "    }\n";
-        out << ind << "    " << expr << ".value.push_back(std::move(elem));\n";
+        out << ind << "    " << vec << ".push_back(std::move(elem));\n";
         out << ind << "  }\n";
         out << ind << "}\n";
         break;
@@ -727,11 +750,10 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       out << ind << "  asn1::ByteReader peek_r(r.remaining_span());\n";
       out << ind << "  auto hdr = asn1::ber::decode_tlv_header(peek_r);\n";
       out << ind << "  if (hdr && hdr.value().tag == " << expect << ") {\n";
-      out << ind << "    emit_field_present: ;\n";
       emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, der, ind + "    ");
       out << ind << "  } else {\n";
       if (f.default_value) {
-        const std::string def_expr = default_val_cpp(*f.default_value);
+        const std::string def_expr = default_val_cpp(f);
         if (!def_expr.empty()) {
           out << ind << "    " << expr << "." << fname << " = " << def_expr << ";\n";
         }
@@ -739,7 +761,7 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       out << ind << "  }\n";
       out << ind << "} else {\n";
       if (f.default_value) {
-        const std::string def_expr = default_val_cpp(*f.default_value);
+        const std::string def_expr = default_val_cpp(f);
         if (!def_expr.empty()) {
           out << ind << "  " << expr << "." << fname << " = " << def_expr << ";\n";
         }
@@ -757,9 +779,14 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       out << ind << "  auto hdr = asn1::ber::decode_tlv_header(peek_r);\n";
       out << ind << "  if (!hdr) return hdr.error();\n";
       out << ind << "  if (hdr.value().tag == " << expect << ") {\n";
-      out << ind << "    " << type_cpp(f.type) << " field{};\n";
-      emit_tlv_field_decode_value(out, ft, &f, "field", der, ind + "    ");
-      out << ind << "    " << expr << "." << fname << " = std::move(field);\n";
+      // Unique temp name: a nested optional SEQUENCE decodes into its own
+      // `field` temp while `expr` (the assignment target) may itself be an
+      // enclosing `field` temp — a duplicate name shadows it and every
+      // nested optional assignment silently targets the wrong object.
+      const std::string tmp = "field" + std::to_string(temp_counter_++);
+      out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
+      emit_tlv_field_decode_value(out, ft, &f, tmp, der, ind + "    ");
+      out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
       out << ind << "  } else {\n";
       out << ind << "    " << expr << "." << fname << " = std::nullopt;\n";
       out << ind << "  }\n";
@@ -783,7 +810,18 @@ void Emitter::emit_tlv_field_decode_value(std::ostream& out, const ir::Type& ft,
         out << ind << "    if (auto dr = decode_" << tlv_fn(der) << "(r, " << expr
             << "); !dr) return dr;\n";
       } else {
-        emit_tlv_decode_body(out, ft, expr, der, nullptr, ind + "    ");
+        // Mirror of the encode side: when the inline type carries the same
+        // explicit tag as the component, the inner value decodes from the
+        // natural universal tag (X.690 8.5).
+        const bool same_tag = ft.tag.cls == field->tag.cls &&
+                              ft.tag.number == field->tag.number &&
+                              ft.tag.is_explicit;
+        ir::Tag natural;
+        natural.cls = ir::TagClass::Universal;
+        natural.number = universal_number_for(ft);
+        natural.is_explicit = false;
+        emit_tlv_decode_body(out, ft, expr, der, same_tag ? &natural : nullptr,
+                             ind + "    ");
       }
       out << ind << "  }\n";
       out << ind << "}\n";

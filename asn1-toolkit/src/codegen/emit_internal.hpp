@@ -229,11 +229,12 @@ class Emitter {
 
     /**
      *  Function    : default_val_cpp
-     *  Description : Builds and returns a string for default val cpp.
-     *  Parameters  : vid — ir::ValueId vid
+     *  Description : Builds the C++ default-value expression for a field.
+     *                BigInteger members get from_i64(...) wrapping.
+     *  Parameters  : f — const ir::Field& f
      *  Returns     : std::string
      */
-    std::string default_val_cpp(ir::ValueId vid);
+    std::string default_val_cpp(const ir::Field& f);
 
     void emit_struct_fields(std::ostream& out, const std::vector<ir::Field>& fields,
                           bool force_optional);
@@ -611,6 +612,11 @@ class Emitter {
   /// Non-null in out-of-line mode: codec definitions stream here while the
   /// header receives declarations only.
   std::ostream* def_out_ = nullptr;
+  /// Monotonic counter for generated decode-temp names. Optional-field
+  /// decode temps are named `field<N>` so a nested optional SEQUENCE's temp
+  /// cannot shadow an enclosing temp of the same name (the enclosing temp is
+  /// the assignment target `expr`, so a shadow breaks every nested optional).
+  std::size_t temp_counter_ = 0;
 };
 
 }  // namespace codegen
