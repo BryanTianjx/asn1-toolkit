@@ -20,7 +20,15 @@ asn1-toolkit 架构分析与优化方案
   3. 生成的 .cpp 是唯一桥梁, 只调用运行时原语。
 
 规模实测 (src + include, 75 文件):
-  emit.cpp            5,208 行 / 103 个成员函数   (最大单文件)
+  emit.cpp (拆分前)     5,208 行 / 103 个成员函数   (原最大单文件)
+  拆分后 (2026-10-14, P0-2 完成):
+    emit_core.cpp        963 行 (驱动/命名/类型声明 + 共享辅助)
+    emit_per.cpp       1,061 行
+    emit_xer.cpp         912 行
+    emit_jer.cpp         782 行
+    emit_oer.cpp         769 行
+    emit_tlv.cpp         783 行
+    emit_internal.hpp    586 行 (共享声明 + Emitter 类接口, src-local)
   analyzer.cpp        2,460 行 / 45 个成员函数
   parser.cpp          2,244 行
   ber/codec.cpp       1,630 行
@@ -136,7 +144,7 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
     默认 out-of-line / --emit-inline 两种形态) + sanitizer 全量 +
     PER/APER 金标准向量零回归
 
-[P0-2] emit.cpp 单文件 5,208 行 / 103 成员函数 — 编译与维护瓶颈
+[P0-2] emit.cpp 单文件 5,208 行 / 103 成员函数 — 编译与维护瓶颈  ✅ 已完成 (2026-10-14)
   现状证据: 改动 emit.cpp 后单线程重建 asn1_codegen 需 18.9s;
   单文件承载 PER/OER/BER/TLV/JER/XER 全家族的发射逻辑。
   方案: 按 codec 家族拆为 emit_per.cpp / emit_jer.cpp / emit_xer.cpp /
@@ -147,6 +155,29 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   风险: 成员函数互相引用密集 (inline_type_cpp 等被全家族使用),
   拆分边界需先梳理依赖; 无功能风险。
   验证: 各 codec round-trip 测试 + fixture 编译门不回归。
+
+  实施结果 (97 个函数全量清点 + 依赖图后):
+  - 拆为 7 个文件: emit_internal.hpp (586 行: 共享自由函数声明 +
+    Emitter 类完整声明 + AliasShape 嵌套枚举), emit_core.cpp (963 行),
+    emit_per.cpp (1,061), emit_xer.cpp (912), emit_jer.cpp (782),
+    emit_oer.cpp (769), emit_tlv.cpp (783)。emit.cpp 删除。
+  - 依赖图结论: 共享面 = 9 个自由函数 (cpp_ident/resolve/is_named/
+    named_type_cpp/integer_is_bigint/integer_host_type/opt_i64_expr/
+    opt_size_expr) + 11 个成员 (type_cpp/inline_type_cpp/emit_header/
+    emit_type_decl/emit_struct_fields/choice_all_fields/
+    field_has_presence_bit/field_wraps_optional/emit_ext_group_field_present/
+    default_val_cpp/type_is_constructed/collect_named/run); 其余 86 个
+    成员函数全部家族内聚, 零跨家族私有调用。
+  - 单家族改动重编译 (asn1_codegen, -j1): 18.9s → 5.5s (JER) /
+    6.9s (PER); 多文件并行生效 (三文件同时改动 wall 6.9s, user 7.5s)。
+  - 迁移方式: 函数体字节级不变 (切片脚本按闭合花括号切分, 只改
+    定义行加 Emitter:: 限定); RRC UPER 产物与拆分前 diff 逐字节一致。
+  - 顺带修复: 原文件 7 处被此前误操作损坏的文档注释
+    (is_named/named_type_cpp/integer_is_bigint/xml_ns/xml_fn_suffix/
+    oer_ns/oer_fn_suffix, 函数体文本混进 Parameters/Returns 行)
+    在搬迁时重写为干净文档。
+  - 验证: Release 298/298 + sanitizer 298/298 + RRC 产物字节一致 +
+    PER/APER 金标准向量零回归。
 
 [P1-1] 金标准差分验证从 PER 扩展到其余 codec
   现状证据: tests/per/golden 是唯一 oracle 差分; OER/BER/DER/JER/
@@ -226,7 +257,7 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 第 1 步 (本周): P0-1 生成代码 out-of-line (收益最大, 风险可控),
   以 RRC fixture 做前后编译耗时对比 + 全量 296 测试守门;
   同步更新 CMake 门禁确保 generated.cpp 真正被编译。✅ 已完成 2026-10-14
-第 2 步: P0-2 emit.cpp 按 codec 家族拆分 (先画依赖图再动手)。
+第 2 步: P0-2 emit.cpp 按 codec 家族拆分 (先画依赖图再动手)。✅ 已完成 2026-10-14
 第 3 步: P1-1 OER/BER/DER 金标准扩展 (正确性投资, 服务 3GPP R17+
   OER 方向)。
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。

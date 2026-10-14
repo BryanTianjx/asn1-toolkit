@@ -48,7 +48,7 @@
     asn1_semantic -> symbol_table, analyzer
     asn1_runtime -> byte_io, bit_io, bigint
     asn1_ber / der / per / oer / coer / xer / cxer / exer / jer / jeri
-    asn1_codegen -> emit.cpp
+    asn1_codegen -> emit_core, emit_per, emit_oer, emit_tlv, emit_jer, emit_xer
 - 链接规则严格分离: asn1cxx 不链接 runtime; codegen 不链接 runtime; runtime 无 ast/ir 头文件
 - 测试: option ASN1_BUILD_TESTS ON
 

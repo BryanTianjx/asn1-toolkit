@@ -120,7 +120,7 @@ C++17, `CMAKE_CXX_STANDARD_REQUIRED ON`, extensions off. CMake 3.16+.
 | `asn1_semantic` | static | symbol table, analyzer |
 | `asn1_constraints` | static | constraint normalizer |
 | `asn1_ir` | static | type arena / IR |
-| `asn1_codegen` | static | C++ emitter (types + thin UPER/APER calls) |
+| `asn1_codegen` | static | C++ emitter, split by family: `emit_core` (types/naming) + `emit_per`/`emit_oer`/`emit_tlv`/`emit_jer`/`emit_xer` |
 | `asn1_runtime` | static | `ByteReader`/`ByteWriter`, `BitReader`/`BitWriter` |
 | `asn1_ber` | static | BER TLV + primitive/constructed codecs |
 | `asn1_der` | static | DER canonical encode/decode on top of BER |

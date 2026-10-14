@@ -214,7 +214,12 @@ target_include_directories(asn1_jeri PUBLIC
 target_link_libraries(asn1_jeri PUBLIC asn1::jer)
 
 add_library(asn1_codegen STATIC
-  src/codegen/emit.cpp
+  src/codegen/emit_core.cpp
+  src/codegen/emit_per.cpp
+  src/codegen/emit_jer.cpp
+  src/codegen/emit_xer.cpp
+  src/codegen/emit_oer.cpp
+  src/codegen/emit_tlv.cpp
 )
 add_library(asn1::codegen ALIAS asn1_codegen)
 target_include_directories(asn1_codegen PUBLIC
