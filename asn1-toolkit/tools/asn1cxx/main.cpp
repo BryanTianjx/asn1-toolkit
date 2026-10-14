@@ -113,6 +113,8 @@ void print_usage(std::ostream& out) {
       << "                         Comma-separated combination (e.g. uper,ber)\n"
       << "                         Codec for --emit-dir (default: uper)\n"
       << "  --namespace <id>        C++ namespace for generated types (default: asn1_gen)\n"
+      << "  --emit-inline           Emit codec functions inline in the header\n"
+      << "                         (default: definitions live in generated.cpp)\n"
       << "\n"
       << "See docs/ARCHITECTURE.md.\n";
 }
@@ -214,7 +216,8 @@ int dump_ir(const std::vector<std::string>& paths) {
 }
 
 int emit_code(const std::vector<std::string>& paths, const std::string& dir,
-              asn1::codegen::CodecKind codec, const std::string& namespace_name) {
+              asn1::codegen::CodecKind codec, const std::string& namespace_name,
+              bool emit_inline) {
   asn1::Diagnostics diag;
   std::vector<asn1::SourceFile> files;
   asn1::ir::Model model = analyze_files(paths, diag, files);
@@ -238,6 +241,7 @@ int emit_code(const std::vector<std::string>& paths, const std::string& dir,
   opt.codec = codec;
   opt.basename = "generated";
   opt.namespace_name = namespace_name;
+  opt.emit_inline = emit_inline;
   asn1::codegen::CppGenerator gen;
   gen.emit(model, opt, diag, header, &source);
   if (!diag.ok()) {
@@ -268,6 +272,10 @@ int main(int argc, char** argv) {
   bool dump_ir_flag = false;
   std::string emit_dir;
   std::string namespace_name = "asn1_gen";
+  // CLI default is out-of-line (declarations in the .hpp, definitions in the
+  // companion .cpp); --emit-inline restores the all-inline header for small
+  // single-TU modules where a zero-link setup is worth more.
+  bool emit_inline = false;
   // None until the first --codec flag; falls back to Uper afterwards so an
   // unset --codec keeps the historical default while --codec uper,ber-style
   // combinations accumulate by OR.
@@ -310,6 +318,10 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
       }
       namespace_name = argv[++i];
+      continue;
+    }
+    if (arg == "--emit-inline") {
+      emit_inline = true;
       continue;
     }
     if (arg == "--codec") {
@@ -371,7 +383,7 @@ int main(int argc, char** argv) {
       if (codec == asn1::codegen::CodecKind::None) {
         codec = asn1::codegen::CodecKind::Uper;
       }
-      if (emit_code(files, emit_dir, codec, namespace_name) != EXIT_SUCCESS) {
+      if (emit_code(files, emit_dir, codec, namespace_name, emit_inline) != EXIT_SUCCESS) {
         status = EXIT_FAILURE;
       }
     }

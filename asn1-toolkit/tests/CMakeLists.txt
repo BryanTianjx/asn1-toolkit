@@ -280,5 +280,5 @@ add_executable(asn1_codec_benchmark_tests
 )
 target_include_directories(asn1_codec_benchmark_tests PRIVATE "${ASN1_PERSON_GEN_ROOT}")
 target_link_libraries(asn1_codec_benchmark_tests PRIVATE
-  asn1::per asn1::oer asn1::ber asn1::jer GTest::gtest_main)
+  asn1::per asn1::oer asn1::coer asn1::ber asn1::der asn1::jer GTest::gtest_main)
 gtest_discover_tests(asn1_codec_benchmark_tests)

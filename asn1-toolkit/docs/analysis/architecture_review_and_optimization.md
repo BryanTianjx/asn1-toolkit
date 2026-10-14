@@ -101,7 +101,7 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 4. 问题与优化方案 (按优先级)
 --------------------------------------------------------------------------------
 
-[P0-1] 生成代码全 inline 于单头文件 — 集成成本数量级问题
+[P0-1] 生成代码全 inline 于单头文件 — 集成成本数量级问题  ✅ 已完成 (2026-10-14)
   现状证据: 33,697 行的 generated.hpp, 每个类型的 encode_uper/
   decode_uper 都是 inline 自由函数; companion TU (generated.cpp)
   只 include 头、不产出任何符号。任何包含该头的 TU 支付 23s 编译;
@@ -117,6 +117,24 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   门禁实际在编译 .hpp, 改后需保证门禁仍覆盖 .cpp)。
   验证: 以 RRC fixture 重测单 TU 编译耗时; 296 测试 + 金标准向量
   不回归。
+
+  实施结果 (RRC Rel-8 全模块 fixture 实测):
+  - 头文件 33,697 → 5,998 行 (-82%); 定义 (28,847 行) 全部落入
+    generated.cpp, 包在生成命名空间内; emit 耗时不变 (0.40s)
+  - 消费 TU (-fsyntax-only, 同一会话同机对比):
+    22.1s → 5.2s (-76%); 每个额外 TU 省 ~17s
+  - 定义 TU 一次性成本: 62.8s 全量编译 (-O0; 其中解析 21.5s);
+    盈亏平衡点 N≈3-4 个 TU (旧模型 N×23s vs 新模型 62.8s+N×5.2s)
+  - 开关: CLI 默认 out-of-line, --emit-inline 恢复旧行为;
+    EmitOptions::emit_inline 默认 true 保证 API 调用方零回归
+    (codegen_test/telecom_test 的文本断言不受影响)
+  - 收益外收获: 此前 generated.cpp 是空 stub, 静态库编译门禁
+    实际没编译任何生成代码; 现在门禁编译真实定义
+  - 修复: codec_benchmark_tests 链接行补 asn1::der/asn1::coer
+    (der/coer 定义 TU 此前无符号所以缺链不可见)
+  - 验证: Release 298/298 (新增 2 项 CLI 测试断言
+    默认 out-of-line / --emit-inline 两种形态) + sanitizer 全量 +
+    PER/APER 金标准向量零回归
 
 [P0-2] emit.cpp 单文件 5,208 行 / 103 成员函数 — 编译与维护瓶颈
   现状证据: 改动 emit.cpp 后单线程重建 asn1_codegen 需 18.9s;
@@ -207,7 +225,7 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 --------------------------------------------------------------------------------
 第 1 步 (本周): P0-1 生成代码 out-of-line (收益最大, 风险可控),
   以 RRC fixture 做前后编译耗时对比 + 全量 296 测试守门;
-  同步更新 CMake 门禁确保 generated.cpp 真正被编译。
+  同步更新 CMake 门禁确保 generated.cpp 真正被编译。✅ 已完成 2026-10-14
 第 2 步: P0-2 emit.cpp 按 codec 家族拆分 (先画依赖图再动手)。
 第 3 步: P1-1 OER/BER/DER 金标准扩展 (正确性投资, 服务 3GPP R17+
   OER 方向)。

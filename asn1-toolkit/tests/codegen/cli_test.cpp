@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -239,4 +240,64 @@ TEST(Cli, UnknownCodecInsideListFails) {
        example("person.asn")});
   EXPECT_NE(r.code, 0);
   EXPECT_NE(r.err.find("unknown codec"), std::string::npos);
+}
+
+// --- Out-of-line emit (default): declarations in .hpp, definitions in .cpp ---
+
+// Emits into a per-test dir and returns (hpp, cpp) text.
+std::pair<std::string, std::string> emit_hpp_cpp(const std::vector<std::string>& args,
+                                                 int* code) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() /
+                       ("asn1cxx_cli_ool_" +
+                        std::to_string(static_cast<long long>(::getpid())));
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+
+  std::vector<std::string> full = args;
+  full.insert(full.begin(), "--emit-dir");
+  full.insert(full.begin() + 1, dir.string());
+  const auto r = run_asn1cxx(full);
+  *code = r.code;
+  const std::string hpp = read_text((dir / "generated.hpp").string());
+  const std::string cpp = read_text((dir / "generated.cpp").string());
+  fs::remove_all(dir, ec);
+  return {hpp, cpp};
+}
+
+TEST(Cli, DefaultEmitIsOutOfLine) {
+  int code = -1;
+  const auto [hpp, cpp] = emit_hpp_cpp(
+      {"--codec", "uper", "--namespace", "ool_gen", example("person.asn")}, &code);
+  EXPECT_EQ(code, 0);
+  // Header: declarations only (no `inline` definitions, no runtime call bodies).
+  EXPECT_NE(hpp.find("encode_uper(asn1::BitWriter& w, const Person& value);"),
+            std::string::npos);
+  EXPECT_EQ(hpp.find("inline asn1::Result"), std::string::npos);
+  EXPECT_EQ(hpp.find("asn1::uper::encode_integer"), std::string::npos);
+  // Companion .cpp: the definitions, wrapped in the generated namespace.
+  EXPECT_NE(cpp.find("#include \"generated.hpp\""), std::string::npos);
+  EXPECT_NE(cpp.find("namespace ool_gen {"), std::string::npos);
+  EXPECT_NE(cpp.find("asn1::Result<void> encode_uper(asn1::BitWriter& w, "
+                     "const Person& value) {"),
+            std::string::npos);
+  EXPECT_NE(cpp.find("asn1::uper::encode_integer"), std::string::npos);
+  EXPECT_NE(cpp.find("}  // namespace ool_gen"), std::string::npos);
+}
+
+TEST(Cli, EmitInlineRestoresHeaderDefinitions) {
+  int code = -1;
+  const auto [hpp, cpp] = emit_hpp_cpp(
+      {"--codec", "uper", "--emit-inline", "--namespace", "inl_gen",
+       example("person.asn")},
+      &code);
+  EXPECT_EQ(code, 0);
+  EXPECT_NE(hpp.find("inline asn1::Result<void> encode_uper(asn1::BitWriter& w, "
+                     "const Person& value) {"),
+            std::string::npos);
+  EXPECT_NE(hpp.find("asn1::uper::encode_integer"), std::string::npos);
+  // Companion TU stays a stub in inline mode.
+  EXPECT_NE(cpp.find("companion TU"), std::string::npos);
+  EXPECT_EQ(cpp.find("asn1::uper::encode_integer"), std::string::npos);
 }

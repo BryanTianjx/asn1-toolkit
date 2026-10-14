@@ -55,6 +55,11 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
 ./build/asn1cxx --dump-ir tests/fixtures/telecom/s1ap_14_4_0/s1ap_14_4_0.asn
 ```
 
+默认 emit 为 out-of-line：`generated.hpp` 只含类型声明与编解码函数
+声明，函数定义全部落在 `generated.cpp`（一个 TU 付一次，其余 TU 只解析
+声明）。大模块（如 RRC 全量）消费 TU 编译时间从 ~22s 降到 ~5s。单 TU
+小模块可加 `--emit-inline` 恢复全 inline 头（零链接步骤）。
+
 ## Layout
 
 ```text

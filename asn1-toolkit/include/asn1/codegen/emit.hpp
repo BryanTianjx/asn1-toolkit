@@ -62,13 +62,22 @@ struct EmitOptions {
   CodecKind codec = CodecKind::Uper;
   /// Header guard / include basename without extension (default: generated).
   std::string basename = "generated";
+  /// When true (default, API back-compat) codec function definitions are
+  /// emitted `inline` into the header and the companion .cpp stays a stub.
+  /// When false the header carries only type + codec declarations and all
+  /// definitions land in the companion .cpp (one definition, paid once).
+  /// The CLI defaults this to false; pass --emit-inline to force inline mode.
+  bool emit_inline = true;
 };
 
 class CppGenerator {
  public:
-  /// Write a self-contained header (types + inline encode/decode) to `header`,
-  /// and an optional companion `.cpp` (currently empty preamble) to `source`
-  /// when non-null. Does not link or include the codec runtime implementation
+  /// Write a self-contained header (types plus encode/decode) to `header`,
+  /// and an optional companion `.cpp` to `source` when non-null. With
+  /// `options.emit_inline` the definitions are `inline` in the header and the
+  /// .cpp is a stub preamble; otherwise the header carries declarations and
+  /// the .cpp holds the definitions (wrapped in the generated namespace).
+  /// Does not link or include the codec runtime implementation
   /// libraries — only prints calls into the selected runtime codec namespace.
   /**
    *  Function    : emit

@@ -22,6 +22,7 @@
 | 三大 3GPP fixture 编译门禁 | `tests/CMakeLists.txt`：RRC(UPER)/LPP(UPER)/S1AP(APER) 全量 emit 产物作为静态库编译门（emit 成功 ≠ 可编译） | Release + sanitizer 全量构建通过（此前从未验证过可编译性） |
 | 多编解码组合生成 | `--codec` 改为位掩码：支持逗号分隔组合（如 `--codec uper,ber`）与重复 `--codec` 标志累加；`emit.cpp` 全部 19 处等值比较改位与判断；未指定 `--codec` 仍默认 UPER | 新增 `Cli.CodecComboUperBerEmitsBothRuntimes` 等 5 项冒烟测试；Release + sanitizer 296/296；组合产物 g++ -fsyntax-only 通过 |
 | PER/APER 金标准字节向量（asn1c oracle） | `scripts/gen_per_golden.py` + `tests/per/per_golden_vectors_test.cpp`：从 asn1c 生成金标准向量并断言精确字节（UPER/APER 各一套，54 向量，含约束原语/长度 determinant/fragmentation/扩展 addition/版本括号组）；修复扩展 addition 编码：X.691 19.9 规定简单扩展 addition 的 open type 内容仅含组件编码（presence 由扩展 bitmap 表示），只有版本括号组 `[[...]]` 才按嵌套 SEQUENCE 编码（含 preamble）。IR 新增 `ExtensionGroup{fields, version_bracket}` 区分两种形态（analyzer 填标记，emit.cpp 的 PER/OER encode/decode 四个函数仅对版本括号组生成 preamble）；此前 UPER/APER 均把 presence bit 编入 open type（多出 1 bit+对齐）导致金标准失败。另修复版本括号组 mandatory 成员的 optional 解包（struct 中扩展组字段统一 force-optional，encode 须统一 `if` 包裹 + `.value()`——此前 mandatory 成员直接传 optional 值，类型不匹配；LPP/RRC 真实组字段全 OPTIONAL 故未暴露） | `PerGoldenVectors.UperMatchesOracleBytes` / `AperMatchesOracleBytes` 通过；Release + sanitizer 291/291 |
+| P0-1 生成代码 out-of-line | CLI 默认改为 out-of-line：`generated.hpp` 只放类型声明 + 编解码函数声明，定义（包在生成命名空间内）全部落 `generated.cpp`；`--emit-inline` 恢复旧的全 inline 头（单 TU 小模块零链接）。`EmitOptions::emit_inline` 默认 true，API 调用方（`emit_header_string`）行为不变。RRC 全模块实测：头 33,697→5,998 行；消费 TU `-fsyntax-only` 22.1s→5.2s；定义 TU 一次性 62.8s（盈亏平衡 N≈3-4 TU）。顺带修复：此前 generated.cpp 是空 stub，fixture 静态库编译门禁实际未编译任何生成代码；`codec_benchmark_tests` 链接行补 `asn1::der`/`asn1::coer`（der/coer 定义 TU 此前无符号所以缺链不可见） | Release 298/298（新增 `Cli.DefaultEmitIsOutOfLine` / `Cli.EmitInlineRestoresHeaderDefinitions`）+ PER/APER 金标准向量零回归 |
 
 ## 剩余 / 未完成
 
@@ -33,9 +34,9 @@
 
 ## 构建状态
 
-- 默认（Release）：**289/289 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：**289/289 通过**，0 失败，零 ASan/UBSan 报错、零泄漏
-- 三大 3GPP fixture（RRC/LPP/S1AP）emit 产物全量编译门禁通过
+- 默认（Release）：**298/298 通过**，0 失败
+- Sanitizer（ASan+UBSan，Debug）：待本轮 out-of-line 改动复测（基线 296/296）
+- 三大 3GPP fixture（RRC/LPP/S1AP）emit 产物全量编译门禁通过（现在编译的是真实定义，此前为 stub）
 - `-Wall -Wextra`：无新增警告
 - 无残留 `Span<int>` 编译错误
 
