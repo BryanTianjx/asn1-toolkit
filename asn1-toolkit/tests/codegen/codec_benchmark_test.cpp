@@ -18,7 +18,7 @@
 **   rather than a flaky timing gate.
 **
 ** Specification: Per-codec rules (X.691/X.696/X.690/X.697).
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include "per/generated.hpp"

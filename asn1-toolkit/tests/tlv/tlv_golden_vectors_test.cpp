@@ -33,7 +33,7 @@
 **       ordering proof there.
 **
 ** Specification: ITU-T X.680 / X.690 / X.696
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 **************************************************************************/
 #include "generated.hpp"

@@ -16,7 +16,7 @@
 **   Diagnostic message storage and formatting.
 **
 ** Specification: No external protocol; compiler infrastructure.
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <asn1/support/diagnostics.hpp>

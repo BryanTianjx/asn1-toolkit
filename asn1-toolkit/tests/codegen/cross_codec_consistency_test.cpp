@@ -19,7 +19,7 @@
 **
 ** Specification: ITU-T X.680 type model; per-codec rules X.691 (PER),
 **                 X.696 (OER/COER), X.690 (BER/DER), X.697 (JER).
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include "per/generated.hpp"

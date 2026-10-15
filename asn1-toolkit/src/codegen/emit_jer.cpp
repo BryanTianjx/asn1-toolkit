@@ -17,7 +17,7 @@
 **
 ** Specification: Generated code layout follows ITU type rules; emission
 **                 logic is toolchain-internal.
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include "emit_internal.hpp"

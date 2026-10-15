@@ -18,7 +18,7 @@
 ** Specification: ITU-T X.690 — Canonical Encoding Rules (CER).
 **                 Clause 9 (CER restrictions) + clause 11 (restrictions
 **                 common to CER and DER).
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 **************************************************************************/
 #pragma once

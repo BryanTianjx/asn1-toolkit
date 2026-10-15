@@ -18,7 +18,7 @@
 ** Specification: ITU-T X.680 — name and module semantics;
 **                 ITU-T X.681 / X.683 — object and parameterization
 **                 semantics where implemented.
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <asn1/semantic/symbol_table.hpp>

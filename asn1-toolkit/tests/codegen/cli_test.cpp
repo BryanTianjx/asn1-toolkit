@@ -19,7 +19,7 @@
 **   heavy compiler headers stay out of the test translation unit.)
 **
 ** Specification: asn1cxx CLI contract (tools/asn1cxx/main.cpp).
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <sys/wait.h>

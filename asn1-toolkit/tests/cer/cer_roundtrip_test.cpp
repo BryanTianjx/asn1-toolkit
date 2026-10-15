@@ -34,7 +34,7 @@
 **   text and the DER equivalence cross-check pins value-level correctness.
 **
 ** Specification: ITU-T X.690 (CER), X.680
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 **************************************************************************/
 

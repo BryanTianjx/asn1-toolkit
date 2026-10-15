@@ -19,7 +19,7 @@
 **
 ** Specification: Invokes X.680/X.681 front end; optional codecs per
 **                 X.690/X.691/X.696/X.693/X.697.
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <asn1/ast/print.hpp>
@@ -119,7 +119,7 @@ void print_usage(std::ostream& out) {
       << "  --emit-inline           Emit codec functions inline in the header\n"
       << "                         (default: definitions live in generated.cpp)\n"
       << "\n"
-      << "See docs/ARCHITECTURE.md.\n";
+      << "See docs/README.md.\n";
 }
 
 /**

@@ -1,5 +1,10 @@
 ================================================================================
-asn1-toolkit 架构分析与优化方案
+# asn1-toolkit 架构分析与优化方案
+
+> **历史归档快照**（分析时间 2026-10-13，Phase 41+ 时点；P0-1/P0-2/P0-3/P1-1/
+> P1-2/P2-1/P2-2 的实施结果已并入本文）。本文为历史记录，不作为项目现状依据：
+> 各优化项的落地状态见 [../changelog.md](../changelog.md)，剩余工作见
+> [../status.md](../status.md)，验证门禁纪律见 [../development.md](../development.md)。
 分析时间: 2026-10-13 (Phase 41+, commit ce7d2a2)
 ================================================================================
 本文基于本地源码实测: 模块行数、emit 产物规模、单 TU 编译耗时、
@@ -19,22 +24,23 @@ asn1-toolkit 架构分析与优化方案
   2. 运行时从不 include AST/符号表/IR 头;
   3. 生成的 .cpp 是唯一桥梁, 只调用运行时原语。
 
-规模实测 (src + include, 75 文件):
+规模实测 (src + include, 83 文件):
   emit.cpp (拆分前)     5,208 行 / 103 个成员函数   (原最大单文件)
-  拆分后 (2026-10-14, P0-2 完成):
-    emit_core.cpp        963 行 (驱动/命名/类型声明 + 共享辅助)
-    emit_per.cpp       1,061 行
-    emit_xer.cpp         912 行
-    emit_jer.cpp         782 行
-    emit_oer.cpp         769 行
-    emit_tlv.cpp         783 行
-    emit_internal.hpp    586 行 (共享声明 + Emitter 类接口, src-local)
+  拆分后 (2026-10-14, P0-2 完成; 行数为 2026-10-15 P2-2 后实测):
+    emit_core.cpp      1,443 行 (驱动/命名/类型声明 + 共享辅助 +
+                    split emit: SCC 单元/模块依赖/命名空间切换)
+    emit_per.cpp       1,092 行
+    emit_tlv.cpp       1,126 行
+    emit_xer.cpp         959 行
+    emit_jer.cpp         818 行
+    emit_oer.cpp         833 行
+    emit_internal.hpp    757 行 (共享声明 + Emitter 类接口, src-local)
   analyzer.cpp        2,460 行 / 45 个成员函数
   parser.cpp          2,244 行
   ber/codec.cpp       1,630 行
   per/codec.hpp       1,198 行 (header)
   ast/type.hpp        1,184 行 (header)
-  其余各 500-1,200 行, 共 35,821 行 C++17
+  其余各 500-1,200 行, 共 38,603 行 C++17
 测试: 8,800+ 行 / 22 个测试域 / 320 项 CTest (tlv_oer_golden 8 项 +
   cer_golden 10 项为 2026-10-14/15 P0-3 + CER 家族新增; tlv_golden
   3 项为 2026-10-15 P1-1 新增; BitIoBenchmark 1 项为 2026-10-15
@@ -303,16 +309,45 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   - 验证: Release 320/320 (新增 1 项 benchmark) + sanitizer 320/320
     + 三套金标准向量零回归; 发射器未改动, 全 codec 编译门禁不受影响
 
-[P2-2] 大模块分文件/分命名空间 emit
+[P2-2] 大模块分文件/分命名空间 emit  ⚠️ 部分完成 (2026-10-15; 已知失败: XML 家族单 codec, 按指示暂停修复)
   现状证据: RRC 单头 33,697 行 (即便 P0-1 拆声明后仍可观);
-  Phase 40 已有 synthetic nested names 基础。
+  Phase 40 已有 synthetic nested names 基础; 计划中的 "LPP 多模块"
+  验证对象实为单模块 fixture (LPP-PDU-Definitions 仅 1 个
+  DEFINITIONS, 无 IMPORTS), 真正的多模块 fixture 是 S1AP (6 模块,
+  含跨模块 IMPORTS 与互相递归)。
   方案: --emit-split 按 ASN.1 模块边界生成 <Module>.hpp/.cpp 对 +
-  聚合头; 头内类型命名空间与模块名对齐 (利用已有 nested names)。
-  预期收益: 单文件可读性、增量编译 (改一个模块只重编该 .cpp)、
-  IDE 性能。
-  风险: 跨模块类型引用需聚合 include 管理, emitter 依赖收集
-  (collect_named) 已具备遍历基础, 但 include 生成逻辑是新增面。
-  验证: 用 LPP (多模块) fixture 验证拆分正确性。
+  聚合头; 头内类型命名空间与模块名对齐; 跨模块类型引用按
+  <Module>::Name 限定 (named_ref, 仅 split 模式生效, flat 产物不变);
+  互相递归的模块 (依赖图 SCC) 合并进同一 header/.cpp 单元 —— 按值
+  跨模块成员要求被引类型完整, 独立头文件无法满足环, 合并单元内按
+  类型依赖序 (named_order_ 即全局依赖优先) 重开各自模块命名空间;
+  每模块头内自带 detail::Null (聚合头全量 include 时避免重复定义)。
+  收益+风险: 单文件可读性、增量编译 (改一个模块只重编该 .cpp)、
+  IDE 性能; 风险为跨模块 include 管理 (新增面), 已按结构依赖
+  (字段/元素/替代/表约束条目/别名解析目标/OCF fixed_type) 计算
+  模块依赖图并生成依赖 include。
+  实施结果+验证: emit_core.cpp collect_module_groups (SCC 检测 +
+  模块依赖 + 依赖优先单元序) 与 run_split (单模块三趟发射 / 合并
+  单元命名空间切换) 落地; EmitOptions::emit_split +
+  CppGenerator::emit_split(dir) API; CLI --emit-split; 家族文件
+  引用位 (type_cpp/choice_ty/static_cast/CHOICE 替代结构) 改走
+  named_ref。产物逐单元 g++ -fsyntax-only 实测: LPP (单模块路径)
+  uper/aper/coer/ber/der/oer/jer 零错误; S1AP (3 个 emit 单元:
+  CommonDataTypes / PDU-Descriptions / 合并的
+  IEs+Containers+PDU-Contents) uper/ber/der/oer/jer 零错误; RRC
+  uper 零错误; flat 产物与改动前逐字节一致 (S1AP uper diff 为空);
+  examples/split_demo.asn 双模块示例 (Demo_Base/Demo_App) 编译通过;
+  CMake 新增 asn1_split_lpp_split / asn1_split_s1ap_split 编译门禁;
+  Release 320/320 (无新增 gtest, 拆分为编译门禁 + 手工矩阵验证)。
+  ⚠️ 已知失败 (暂停优化, 记录于此): --codec xer/exer/cxer 单独选择
+  时 split 产物编译失败 —— LPP 182 错 / S1AP 1609 错, 统一报
+  'make_error' is not a member of 'asn1'。根因不在 split: flat 模式
+  --codec xer 单独跑复现同样 182 错 (已实测) —— emit_includes 的
+  XML 分支未 include <asn1/runtime/byte_io.hpp> (make_error 所在),
+  全 12-codec 组合门禁因 oer/tlv/jer/per 分支带入 byte_io.hpp 而
+  掩盖该缺口 (单 codec 选择才暴露)。属既有发射器 include 缺口,
+  非 split 引入; 修复方向为 XML 分支补 byte_io.hpp (一行), 按用户
+  指示暂停。状态同步记录于 TODO.md 剩余项。
 
 [P2-3] 增量代码生成 (src 未变则跳过)
   现状证据: 用户既有工作流偏好 (src 未变不重跑 generate/preprocess);
@@ -356,7 +391,10 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。
   ✅ 已完成 2026-10-15 (bitmap 写 3.2×, UPER 往返 +12%,
   320/320 双门禁 + 三套金标准零回归)。
-后续: P1-2 CER ✅ 已完成 2026-10-15、P2-2 分文件 emit、P2-3 增量生成按需排期。
+后续: P1-2 CER ✅ 已完成 2026-10-15、P2-2 分文件 emit ⚠️ 部分完成
+  2026-10-15 (LPP/S1AP 上 uper/aper/coer/ber/der/oer/jer 全通过;
+  XML 家族单 codec 既有 include 缺口暴露, 按指示暂停修复并记录)、
+  P2-3 增量生成按需排期。
 
 每步验证口径统一: ctest 320/320 (Release + sanitizer) + 受影响
 fixture 的产物 g++ -fsyntax-only 0 error (全 codec 位掩码, 见 P0-3)

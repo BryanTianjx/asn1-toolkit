@@ -19,7 +19,7 @@
 **                 tests/per/golden/per_golden_vectors.txt are produced by
 **                 an independent implementation (asn1tools) via
 **                 scripts/gen_per_golden.py, never by this toolchain.
-** Design Spec:   asn1-toolkit/docs/ARCHITECTURE.md
+** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include "generated.hpp"

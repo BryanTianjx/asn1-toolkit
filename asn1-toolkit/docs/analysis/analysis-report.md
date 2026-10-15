@@ -1,5 +1,9 @@
 ================================================================================
-全面分析报告 - asn1-toolkit (WIFI_Codec2024 / ASN.1 编译器与编解码运行时)
+# 全面分析报告 - asn1-toolkit (WIFI_Codec2024 / ASN.1 编译器与编解码运行时)
+
+> **历史归档快照**（分析时间 2026-10-08，Phase 41 时点）。本文为历史记录，不作为
+> 项目现状依据。现状见 [../status.md](../status.md)，历史变更见
+> [../changelog.md](../changelog.md)，文档目录见 [../README.md](../README.md)。
 ================================================================================
 路径: /mnt/f/ASN_1/asn1-toolkit/asn1-toolkit
 分支: asn1-toolkit-phase-39-validation (clean)
