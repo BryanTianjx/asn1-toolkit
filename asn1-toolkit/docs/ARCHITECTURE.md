@@ -331,7 +331,7 @@ GoogleTest, one binary per area, registered with CTest.
 - Checked-in hex vectors from X.691 examples.
 - Integration (Phase 11/39): `.asn` → `asn1cxx` → compile → encode → decode for
   Person across PER/OER/COER/BER/DER/JER and for the RRC telecom slice (UPER).
-- All-codec compile gate: RRC/LPP/S1AP/rrc_slice/`tlv_oer_golden`/`cer_golden`
+- All-codec compile gate: RRC/LPP/S1AP/rrc_slice/`tlv_oer_golden`/`tlv_golden`/`cer_golden`
   emitted with the full 12-codec bitmask
   (`uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer`) and
   `g++ -fsyntax-only`-checked — every codec family carries its own copy of the
@@ -395,6 +395,7 @@ GoogleTest, one binary per area, registered with CTest.
 41. Review hardening — OCF re-resolve, DEFAULT, PER constraints, BitString, caps (done)
 42. All-codec emitted-code hardening — 9-codec compile gates (done): XER/EXER/CXER/JER/OER/COER/TLV output compile-verified for the first time; fixed XML namespace selection, deref precedence, inline-list `.value`, nested-CHOICE qualification, decode-temp and alt-local shadowing (unique `temp_counter_` names), JER choice-decode returns, X.680 25.3 automatic tagging, field-aware DEFAULT lowering, X.690 8.5 explicit-tag natural encoding, X.696 8.7.2 OER choice tag; `tlv_oer_golden` fixture + 8 round-trip tests
 43. CER (X.690) codec family (done): BER-primitive strategy layer (`src/runtime/cer/codec.cpp`) with indefinite constructed wrappers (9.1), 1000-octet string fragmentation (9.2 + 8.6.4 BIT STRING initial octet), unused-bit masking (11.2), SET/SET OF tag ordering (9.3 — untagged CHOICE keyed by its smallest tag, computed statically via `Emitter::set_component_key` and emitted pre-ordered through `encode_set_ordered`), canonical strictness; `TlvKind` routing through the whole `emit_tlv.cpp` family; `cer_golden` fixture + 10 byte-pinned round-trip tests; fixed the all-TLV SET decoder dispatch for untagged-CHOICE components (was emitting the universal-0 placeholder tag, now the union of the choice's alternative tags)
+44. BER/DER/OER golden differential validation + OER SET ordering (done): byte-level oracle vectors beyond PER (`scripts/gen_tlv_golden.py` + `tests/tlv/golden/tlv_golden_vectors.txt` + `asn1_tlv_golden_tests`, 16 cases × 3 codecs) — asn1tools is the BER/OER source, asn1c arbitrates DER (asn1tools does not sort SET/SET OF, X.690 11.6; its oer_encode segfaults on SET values, a known asn1c bug); BER SET cases carry '-' (no canonical order, X.690 8.14). OER SET components now emit in X.696 18.2 canonical (tag) order — root components stable-sorted by `set_component_key` at emit time, preamble bits and decode mirroring the same order (verified byte-exact against the OER oracle)
 
 ## Telecom validation (Phase 14 / 38 / 39 / 40)
 
@@ -406,10 +407,11 @@ GoogleTest, one binary per area, registered with CTest.
 | RRC slice | `tests/fixtures/telecom/rrc_slice/` | UPER/OER emit + UPER round-trip vs known hex |
 | Person | `examples/person.asn` | UPER/APER/OER/COER/BER/DER/JER compile round-trips |
 | tlv_oer_golden | `tests/fixtures/telecom/tlv_oer_golden.asn` | 12-codec compile gate + BER/DER/OER/JER round-trips with byte-pinned tags and DEFAULT behaviour |
+| tlv_golden | `tests/fixtures/telecom/tlv_golden.asn` | 12-codec compile gate + BER/DER/OER differential golden vectors vs asn1tools/asn1c oracles (16 cases: IMPLICIT/EXPLICIT tags, SET/SET OF ordering, DEFAULT, NULL/negative/REAL, extensible ENUMERATED, nested CHOICE, extension additions) |
 | cer_golden | `tests/fixtures/cer/cer_golden.asn` | 12-codec compile gate + CER byte-pinned round-trips (indefinite wrappers, fragmentation, SET ordering, CER/DER value equivalence) |
 
 CTest: `asn1_telecom_tests`, `asn1_telecom_roundtrip_tests`, `asn1_codegen_roundtrip_tests`,
-`asn1_tlv_oer_golden_tests`, `asn1_cer_roundtrip_tests`.
+`asn1_tlv_oer_golden_tests`, `asn1_cer_roundtrip_tests`, `asn1_tlv_golden_tests`.
 See `tests/fixtures/telecom/README.md`. Not full 3GPP codec parity.
 
 ## Tradeoffs

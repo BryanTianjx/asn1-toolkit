@@ -80,7 +80,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 
 六、参考与文档
 --------------------------------------------------------------------------------
-- 架构设计: docs/ARCHITECTURE.md (417 行, 完整流水线、编码规则行为、阶段记录 1-43)
+- 架构设计: docs/ARCHITECTURE.md (426 行, 完整流水线、编码规则行为、阶段记录 1-44)
 - 参考树说明: docs/ARCHITECTURE.md 第 1 行 (pasn1/, asn1c, Python_asn1tools/, FFASN1dump/ 不属于本构建)
 - 版权头维护脚本: scripts/add_file_headers.py (自动添加 PROCODEC 头信息到 .cpp/.hpp)
 - 分析报告归档 (docs/analysis/):
@@ -96,7 +96,8 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 4. 后续工作已明确记录: 表约束类型化开放类型已完成; 全 codec 产物编译门禁
    (12 codec emit + -fsyntax-only) 已于 2026-10-15 完成 (见
    docs/analysis/architecture_review_and_optimization.md P0-3), CER 家族同批落地;
-   许可证文件、PER/APER 协议级消息金标准向量扩展仍未完成
+   BER/DER/OER 金标准差分验证已于 2026-10-15 完成 (P1-1, asn1tools/asn1c
+   oracle, 见 tests/tlv/golden/); 许可证文件、协议级消息金标准向量扩展仍未完成
 
 八、快速命令清单
 --------------------------------------------------------------------------------

@@ -193,6 +193,33 @@ target_link_libraries(asn1_tlv_oer_golden_tests PRIVATE
   asn1::ber asn1::der asn1::oer asn1::jer GTest::gtest_main)
 gtest_discover_tests(asn1_tlv_oer_golden_tests)
 
+# tlv_golden fixture: differential BER/DER/OER golden vectors (P1-1).
+# The vectors in tests/tlv/golden/tlv_golden_vectors.txt are produced by
+# independent oracles (asn1tools + asn1c) via scripts/gen_tlv_golden.py —
+# asn1c arbitrates DER (SET/SET OF ordering, X.690 11.6), asn1tools is the
+# BER/OER source (asn1c's oer_encode segfaults on SET values). BER has no
+# canonical SET order (X.690 8.14), so SET cases carry '-' there.
+set(ASN1_TLV_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tlv_golden")
+add_custom_command(
+  OUTPUT "${ASN1_TLV_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_TLV_GOLDEN_GEN_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_TLV_GOLDEN_GEN_DIR}" --codec ber,der,oer
+          --namespace tg
+          "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_golden.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_golden.asn"
+  COMMENT "Generating BER/DER/OER C++ for telecom tlv_golden.asn"
+  VERBATIM
+)
+add_executable(asn1_tlv_golden_tests
+  tlv/tlv_golden_vectors_test.cpp
+  "${ASN1_TLV_GOLDEN_GEN_DIR}/generated.cpp"
+)
+target_include_directories(asn1_tlv_golden_tests PRIVATE "${ASN1_TLV_GOLDEN_GEN_DIR}")
+target_compile_definitions(asn1_tlv_golden_tests PRIVATE
+  ASN1_TLV_GOLDEN_FILE="${CMAKE_SOURCE_DIR}/tests/tlv/golden/tlv_golden_vectors.txt")
+target_link_libraries(asn1_tlv_golden_tests PRIVATE
+  asn1::ber asn1::der asn1::oer GTest::gtest_main)
+gtest_discover_tests(asn1_tlv_golden_tests)
+
 # CER (X.690) byte-level round-trips: indefinite wrappers (9.1), string
 # fragmentation (9.2), BIT STRING fragment initial octets (8.6.4), SET tag
 # ordering (9.3), unused-bit zeroing (11.2), canonical strictness, and the

@@ -35,8 +35,9 @@ asn1-toolkit 架构分析与优化方案
   per/codec.hpp       1,198 行 (header)
   ast/type.hpp        1,184 行 (header)
   其余各 500-1,200 行, 共 35,821 行 C++17
-测试: 8,800+ 行 / 22 个测试域 / 316 项 CTest (tlv_oer_golden 8 项 +
-  cer_golden 10 项为 2026-10-14/15 P0-3 + CER 家族新增)
+测试: 8,800+ 行 / 22 个测试域 / 319 项 CTest (tlv_oer_golden 8 项 +
+  cer_golden 10 项为 2026-10-14/15 P0-3 + CER 家族新增; tlv_golden
+  3 项为 2026-10-15 P1-1 新增)
 
 --------------------------------------------------------------------------------
 2. 核心优势 (每项附证据)
@@ -232,27 +233,35 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   - 验证: 6 fixture × 12 codec -fsyntax-only 零错误; Release +
     sanitizer 316/316, 零 ASan/UBSan
 
-[P1-1] 金标准差分验证从 PER 扩展到其余 codec
-  现状证据: tests/per/golden 是唯一 oracle 差分; OER/BER/DER/JER/
+[P1-1] 金标准差分验证从 PER 扩展到其余 codec  ✅ 已完成 (2026-10-15)
+  现状证据(修复前): tests/per/golden 是唯一 oracle 差分; OER/BER/DER/JER/
   XER 等只有自往返测试 (自一致 ≠ 位布局正确, 见 skill 纪律)。
-  方案: 以 asn1c (BER/DER/OER/XER) + asn1tools (JER/GSER) 为 oracle,
-  按 per_golden_vectors_test.cpp 的成熟模式扩展到至少 OER/BER/DER;
-  JER 文本形态可用 asn1tools 差分。
-  预期收益: OER 系 (3GPP R17+ 新 IE 方向) 获得字节级正确性证明。
-  风险: oracle 自身偏差需按 ITU PDF 逐条裁定 (asn1c 已知
-  BIT STRING 尾零剥离问题), 工作量主要在裁定而非代码。
-  验证: 每新增一族金标准向量, 先跑通再合入; 冲突条款记录到
-  references/per-differential-validation.md 同类文档。
+  方案: `scripts/gen_tlv_golden.py` 以 asn1c (DER 仲裁) + asn1tools
+  (BER/OER 向量源) 为 oracle 生成 16 用例字节向量; 每处分歧按 ITU PDF
+  裁定而非按编译器名声: asn1tools 不排序 SET/SET OF (X.690 11.6 要求
+  X.680 8.6 标签序/编码八位组串升序) → asn1c `der_encode` 胜出并写回;
+  asn1c `oer_encode` 对 SET 值段错误 (已知 bug) → OER 列保留 asn1tools;
+  BER 无规范 SET 序 (X.690 8.14) → SET 用例 BER 列记 '-'。
+  收益+风险: OER/BER/DER 获得字节级正确性证明; oracle 偏差裁定工作量
+  集中在 DER SET/SET OF 三例与 OER SET 段错误, 未引入 toolkit 回归。
+  实施结果+验证: `asn1_tlv_golden_tests` 3 项 (BER/DER/OER) 16 用例全过;
+  OER SET 组件暴露并修复定义序 emit——改为 X.696 18.2 规范(标签)序,
+  preamble 位序与解码镜像同一顺序; Release + sanitizer 319/319, 七 fixture
+  × 12 codec 编译门禁零错误, per_golden 向量零回归。
 
-[P1-2] 补齐 CER (X.690)
-  现状证据: --codec 无 cer; asn1c 支持 CER (对比文档第 1 节)。
+[P1-2] 补齐 CER (X.690)  ✅ 已完成 (2026-10-15)
+  现状证据(修复前): --codec 无 cer; asn1c 支持 CER (对比文档第 1 节)。
   方案: DER 的策略层已具备最短长度/规范 SET 序, CER = BER + 规范化
   策略 (DER 的姊妹), 实现模式与 DER=BER 策略完全同构, 增量小。
   预期收益: 编码规则覆盖 10 → 11, 追平 asn1c 全集;
   价值: 某些证书/协议仍要求 CER。
   风险: CER 的 SET OF 序规则与 DER 不同 (编码值序而非标签序),
   需按 X.690 实现; 工作量中等。
-  验证: 金标准向量差分 (asn1c oracle 有 CER)。
+  实施结果+验证: `src/runtime/cer/codec.cpp` 561 行策略层落地 (9.1
+  不定长包装 / 9.2+8.6.4 分片 / 11.2 末八位组清零 / 9.3 SET/SET OF
+  标签序); `cer_golden` fixture + 10 项字节级金标准 (无外部 CER
+  oracle, 由 X.690 条文推导 + DER 值等价交叉验证); 顺带修复全 TLV
+  SET 解码器未打标签 CHOICE 派发; Release + sanitizer 316/316。
 
 [P2-1] bit_io 逐位写路径优化
   现状证据: BitWriter::put_bit 每比特做除法取字节下标 + 分支 + OR;
@@ -319,7 +328,7 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。
 后续: P1-2 CER ✅ 已完成 2026-10-15、P2-2 分文件 emit、P2-3 增量生成按需排期。
 
-每步验证口径统一: ctest 316/316 (Release + sanitizer) + 受影响
+每步验证口径统一: ctest 319/319 (Release + sanitizer) + 受影响
 fixture 的产物 g++ -fsyntax-only 0 error (全 codec 位掩码, 见 P0-3)
 + 金标准向量零回归。
 ================================================================================

@@ -260,16 +260,28 @@ void Emitter::emit_oer_extension_group_decode(std::ostream& out, const ir::Exten
   }
 
 void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc& seq,
-                                const std::string& expr, const std::string& ind) {
-    std::vector<const ir::Field*> optionals;
+                                const std::string& expr, const std::string& ind,
+                                bool is_set) {
+    // Root components (SET: in X.696 18.2 canonical order — the preamble
+    // bits follow the same order per 18.1; extension additions are NOT
+    // reordered, X.696 18.2 NOTE 1).
+    std::vector<const ir::Field*> root_fields;
     for (const ir::Field& f : seq.root) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
-      }
+      root_fields.push_back(&f);
     }
     for (const ir::Field& f : seq.trailing_root) {
-      if (field_has_presence_bit(f)) {
-        optionals.push_back(&f);
+      root_fields.push_back(&f);
+    }
+    if (is_set) {
+      std::stable_sort(root_fields.begin(), root_fields.end(),
+                       [this](const ir::Field* a, const ir::Field* b) {
+                         return set_component_key(*a) < set_component_key(*b);
+                       });
+    }
+    std::vector<const ir::Field*> optionals;
+    for (const ir::Field* fp : root_fields) {
+      if (field_has_presence_bit(*fp)) {
+        optionals.push_back(fp);
       }
     }
     const std::size_t n_ext = seq.extension_groups.size();
@@ -312,8 +324,9 @@ void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc
         << (seq.extensible ? "true" : "false") << ", ext_present, "
         << "asn1::Span<const bool>(opt, " << optionals.size() << "));\n";
     out << ind << "}\n";
-    auto emit_fields_encode = [&](const std::vector<ir::Field>& fields) {
-      for (const ir::Field& f : fields) {
+    auto emit_fields_encode = [&]() {
+      for (const ir::Field* fp : root_fields) {
+        const ir::Field& f = *fp;
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         if (f.presence == ir::Presence::Optional) {
@@ -336,8 +349,7 @@ void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc
         }
       }
     };
-    emit_fields_encode(seq.root);
-    emit_fields_encode(seq.trailing_root);
+    emit_fields_encode();
     if (seq.extensible && n_ext > 0) {
       out << ind << "{\n";
       out << ind << "  bool ep[" << n_ext << "] = {};\n";
@@ -373,15 +385,27 @@ void Emitter::emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc
   }
 
 void Emitter::emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc& seq,
-                                const std::string& expr, const std::string& ind) {
-    std::size_t n_optionals = 0;
+                                const std::string& expr, const std::string& ind,
+                                bool is_set) {
+    // Mirror of the encode order: SET root components (and their preamble
+    // bits) in X.696 18.2 canonical order; extension additions keep
+    // definition order (18.2 NOTE 1).
+    std::vector<const ir::Field*> root_fields;
     for (const ir::Field& f : seq.root) {
-      if (field_has_presence_bit(f)) {
-        ++n_optionals;
-      }
+      root_fields.push_back(&f);
     }
     for (const ir::Field& f : seq.trailing_root) {
-      if (field_has_presence_bit(f)) {
+      root_fields.push_back(&f);
+    }
+    if (is_set) {
+      std::stable_sort(root_fields.begin(), root_fields.end(),
+                       [this](const ir::Field* a, const ir::Field* b) {
+                         return set_component_key(*a) < set_component_key(*b);
+                       });
+    }
+    std::size_t n_optionals = 0;
+    for (const ir::Field* fp : root_fields) {
+      if (field_has_presence_bit(*fp)) {
         ++n_optionals;
       }
     }
@@ -391,8 +415,9 @@ void Emitter::emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc
         << (seq.extensible ? "true" : "false") << ", " << n_optionals << ");\n";
     out << ind << "  if (!pre) return pre.error();\n";
     std::size_t opt_i = 0;
-    auto emit_fields = [&](const std::vector<ir::Field>& fields) {
-      for (const ir::Field& f : fields) {
+    auto emit_fields = [&]() {
+      for (const ir::Field* fp : root_fields) {
+        const ir::Field& f = *fp;
         const std::string fname = cpp_ident(f.name);
         const ir::Type& ft = resolve(model_, f.type);
         if (f.presence == ir::Presence::Optional) {
@@ -424,8 +449,7 @@ void Emitter::emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc
         }
       }
     };
-    emit_fields(seq.root);
-    emit_fields(seq.trailing_root);
+    emit_fields();
     if (seq.extensible) {
       out << ind << "  if (pre.value().extensions_present) {\n";
       out << ind << "    auto ext = " << oer_ns() << "::decode_extension_additions(r);\n";
@@ -543,10 +567,10 @@ void Emitter::emit_oer_encode_body(std::ostream& out, const ir::Type& t, const s
         break;
       }
       case ir::TypeKind::Sequence:
-        emit_oer_sequence_encode(out, rt.sequence, expr, ind);
+        emit_oer_sequence_encode(out, rt.sequence, expr, ind, false);
         break;
       case ir::TypeKind::Set:
-        emit_oer_sequence_encode(out, rt.set, expr, ind);
+        emit_oer_sequence_encode(out, rt.set, expr, ind, true);
         break;
       case ir::TypeKind::Choice: {
         const auto all = choice_all_fields(rt.choice);
@@ -740,10 +764,10 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
         break;
       }
       case ir::TypeKind::Sequence:
-        emit_oer_sequence_decode(out, rt.sequence, expr, ind);
+        emit_oer_sequence_decode(out, rt.sequence, expr, ind, false);
         break;
       case ir::TypeKind::Set:
-        emit_oer_sequence_decode(out, rt.set, expr, ind);
+        emit_oer_sequence_decode(out, rt.set, expr, ind, true);
         break;
       case ir::TypeKind::Choice: {
         const auto all = choice_all_fields(rt.choice);

@@ -516,10 +516,12 @@ class Emitter {
                                        const std::string& expr, const std::string& ind);
 
     void emit_oer_sequence_encode(std::ostream& out, const ir::SequenceDesc& seq,
-                                const std::string& expr, const std::string& ind);
+                                const std::string& expr, const std::string& ind,
+                                bool is_set);
 
     void emit_oer_sequence_decode(std::ostream& out, const ir::SequenceDesc& seq,
-                                const std::string& expr, const std::string& ind);
+                                const std::string& expr, const std::string& ind,
+                                bool is_set);
 
     void emit_oer_encode_body(std::ostream& out, const ir::Type& t, const std::string& expr,
                             const std::string& ind);
