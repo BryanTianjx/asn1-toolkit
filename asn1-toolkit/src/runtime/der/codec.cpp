@@ -593,6 +593,16 @@ void encode_sequence(ByteWriter& out, Span<const std::uint8_t> components, ber::
  *  Parameters  : in — ByteReader& in; expected — ber::Tag expected
  *  Returns     : Result<std::vector<std::uint8_t>>
  */
+void encode_constructed(ByteWriter& out, ber::Tag tag, Span<const std::uint8_t> components) {
+  // DER requires the definite form (X.690 10.1); the BER encoder already
+  // emits definite minimal lengths.
+  ber::encode_constructed(out, tag, components);
+}
+
+Result<std::vector<std::uint8_t>> decode_constructed(ByteReader& in, ber::Tag expected) {
+  return decode_constructed_definite(in, expected);
+}
+
 Result<std::vector<std::uint8_t>> decode_sequence(ByteReader& in, ber::Tag expected) {
   return decode_constructed_definite(in, expected);
 }

@@ -26,6 +26,8 @@
 | P0-2 emit.cpp 按 codec 家族拆分 | 5,208 行单文件拆为 7 个：`emit_internal.hpp`（586 行，src-local：9 个共享自由函数声明 + Emitter 类完整声明 + AliasShape）、`emit_core.cpp`（963 行）、`emit_per.cpp`（1,061）、`emit_xer.cpp`（912）、`emit_jer.cpp`（782）、`emit_oer.cpp`（769）、`emit_tlv.cpp`（783）。依赖图：共享面仅 9 个自由函数 + 11 个成员（type_cpp/emit_header/emit_type_decl/emit_struct_fields/choice_all_fields/default_val_cpp/field_has_presence_bit 等），其余 86 个成员函数全部家族内聚。函数体字节级迁移（切片脚本按闭合花括号切分），RRC UPER 产物与拆分前 diff 逐字节一致。顺带修复原文件 7 处损坏的文档注释（函数体文本混进注释行） | Release + sanitizer 298/298；单家族改动重编译 18.9s→5.5s（JER）/6.9s（PER，-j1）；金标准向量零回归 |
 | 全 codec 产物编译门禁驱动的发射器缺陷修复（9 codec：uper,ber,der,oer,coer,jer,xer,exer,cxer） | 首次对三大 fixture（RRC/LPP/S1AP）+ 新 fixture tlv_oer_golden.asn 做全 codec emit + `g++ -fsyntax-only` 门禁，暴露并修复：(1) emit_xer 的 XML 运行时命名空间——`Element` 类型硬编码 `asn1::exer::Element`，Basic-XER/CXER 产物引用 E-XER 命名空间但未 include 其头文件（EXER 模式恰好自洽故此前未暴露），全部改走 `xml_ns()`；(2) `find_child` 解引用优先级 `*child.value().children` → `(*child.value())`，XER 可选字段同理 `(*value.f).bits`；(3) JER/XER 内联（匿名）SEQUENCE OF/SET OF 误用命名别名结构的 `.value` 成员（OER/TLV 已修、JER/XER 漏网），统一 `is_named(rt) ? expr + ".value" : expr`；(4) 嵌套 CHOICE 解码——替代结构体未限定（`m_` → `Nested_rec_q::m_`），JER/XER 复用 OER/TLV 的 `choice_ty` 模式；JER 选择解码误发 `return value;`（返回 `Result<void>` 的函数）→ `Result<void>::success()`；(5) 可选字段解码临时变量遮蔽（根因，五族发射器全中）——临时变量固定命名 `field`，嵌套可选 SEQUENCE 的内层临时变量遮蔽外层同名临时变量，而外层临时变量正是赋值目标 `expr`，导致嵌套可选字段全部赋错对象（RRC 真实报错 `field.ac_BarringForMO_Signalling = std::move(field)`）；新增 `Emitter::temp_counter_`，解码临时变量统一 `field<N>`，XER/JER 的 `xer_field`/`jer_field` 同步；(6) CHOICE 替代局部变量自遮蔽——`const auto& alt = std::get<N>(alt.value...)`（auto 推导前引用自身），PER/OER/TLV/XER 统一 `alt<N>`；(7) analyzer：X.680 25.3/29.2——组件列表中任一文本标签即禁用整表自动编号，未打标签组件保留自然 universal 标签（IR 实测 `plain` 保持 UNIVERSAL 2 而非 CONTEXT 0）；(8) default_val_cpp 重构为按字段取默认值：非约束 INTEGER 默认值包 `BigInteger::from_i64(...)`、字符串字面量剥离 lexer 附带的引号；(9) TLV EXPLICIT 标签与内联类型标签相同时编自然 universal 标签（X.690 8.5）；OER 选择标签不带 constructed 位（X.696 8.7.2） | 门禁：tlv_oer_golden + RRC + LPP + S1AP × 9 codec `g++ -fsyntax-only` 全部零错误（此前全部失败）；新增 `asn1_tlv_oer_golden_tests`（8 项：混合标签 DER 字节级断言 `30 0F 02 01 07 81 01 08 82 02 68 69 A3 03 01 01 FF`、DEFAULT 省略/携带 `83 01 63`/`84 03 62 79 65`、SET/SET OF/SEQUENCE OF、嵌套 CHOICE、OER/JER/BER 往返）；Release + sanitizer 双门禁 306/306，零 ASan/UBSan |
 
+| CER (X.690) 编解码器家族 | 第 12 个 codec 家族端到端落地：`src/runtime/cer/codec.cpp`（561 行，BER 原语策略层：9.1 构造值一律不定长 `30 80 … 00 00`（含 CHOICE 替代）、9.2 超 1000 内容八位组的 OCTET STRING/UTF8String 切分为 ≤1000 原始分片、8.6.4 BIT STRING 分片各自携带初始(未用位)八位组且计入 1000 预算、11.2 末八位组未用位清零、9.3 SET/SET OF 标签序排序（未打标签 CHOICE 按选择项中最小标签 emit 时静态定序 + `encode_set_ordered` 不运行时重排；SET OF 按编码字节串升序）、canonical 严格性（拒绝 CER 要求不定长处的定长形式））；`emit_tlv.cpp` 按 `TlvKind{Ber,Der,Cer}` 路由（`tlv_ns`/`tlv_fn`，`der = tlv != Ber` 覆盖 CER 的 SET/SET OF 排序路径）；CMake `asn1_cer` 静态库 + CLI `--codec cer`；`tests/fixtures/cer/cer_golden.asn` + `asn1_cer_roundtrip_tests`（10 项字节级金标准：不定长包装、SET 标签序、CHOICE 原始/构造替代派发、OCTET/BIT STRING 分片、SET OF 字节序、SET 内未打标签 CHOICE 最小标签定序、CER/DER 值等价、定长包装拒绝）。无外部 CER oracle（asn1c v0.9.29 与 asn1tools 均无 CER），金标准由 X.690 条文推导 + DER 值等价交叉验证。顺带修复全 TLV 家族 SET 解码器潜在缺陷：SET 内未打标签 CHOICE 组件的解码派发键此前生成 `universal(0, true)` 占位标签（永不匹配真实编码），改为 emit 时计算该 CHOICE 全部（递归嵌套）替代标签的并集作派发条件——BER/DER/CER 同路径受影响，由新 fixture 首次暴露 | Release + sanitizer 双门禁 316/316；五大 fixture（RRC/LPP/S1AP/rrc_slice/cer_golden）× 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`-fsyntax-only` 零错误 |
+
 ## 剩余 / 未完成
 
 | 项目 | 阻塞原因 | 建议后续 |
@@ -36,9 +38,9 @@
 
 ## 构建状态
 
-- 默认（Release）：**306/306 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：**306/306 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译）
-- 全 codec 编译门禁：tlv_oer_golden.asn + RRC(8.6.0) + LPP(14.3.0) + S1AP(14.4.0) 四 fixture × 9 codec（uper,ber,der,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误（此前从未验证过 XER/EXER/CXER/JER/OER/COER/TLV 全组合产物可编译性）
+- 默认（Release）：**316/316 通过**，0 失败
+- Sanitizer（ASan+UBSan，Debug）：**316/316 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译）
+- 全 codec 编译门禁：tlv_oer_golden.asn + cer_golden.asn + RRC(8.6.0) + LPP(14.3.0) + S1AP(14.4.0) + rrc_slice 六 fixture × 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误
 - 三大 3GPP fixture（RRC/LPP/S1AP）emit 产物全量编译门禁通过（现在编译的是真实定义，此前为 stub）
 - `-Wall -Wextra`：无新增警告
 - 无残留 `Span<int>` 编译错误

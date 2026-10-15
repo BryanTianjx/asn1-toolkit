@@ -40,7 +40,7 @@ E-XER (扩展 XML)     不支持   不支持       支持 (编码指令矩阵)
 JER (基本 JSON)      不支持   支持         支持
 JERI (JER 编码指令)  不支持   不支持       支持
 GSER (通用字符串)    不支持   支持         不支持
-合计                 6        8            10 (另 both=UPER|APER 组合)
+合计                 6        8            11 (另 per=UPER|APER 组合)
 
 * asn1c: 解包实测 skeletons/ 下仅 ber/oer/per/xer/der 编解码器, 未见
   unaligned/APER 相关实现; 官方描述为 "BER/DER/CER/PER/XER"。

@@ -238,6 +238,13 @@ Result<std::vector<std::uint8_t>> decode_sequence(
      */
     ByteReader& in, ber::Tag expected = ber::universal(ber::kTagSequence, true));
 
+/// Generic constructed wrapper (EXPLICIT tags, INSTANCE OF bodies, ...):
+/// definite form under DER (X.690 10.1).
+void encode_constructed(ByteWriter& out, ber::Tag tag, Span<const std::uint8_t> components);
+
+/// Decode a definite constructed wrapper; rejects the indefinite form (DER).
+Result<std::vector<std::uint8_t>> decode_constructed(ByteReader& in, ber::Tag expected);
+
 /// SET: sorts component TLVs by ascending tag encoding before wrap.
 /// `components` are complete TLV encodings of each SET member.
 void encode_set(ByteWriter& out, std::vector<std::vector<std::uint8_t>> components,

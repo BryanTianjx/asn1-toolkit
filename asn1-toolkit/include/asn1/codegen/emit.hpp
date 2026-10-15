@@ -33,21 +33,53 @@ namespace asn1 {
 namespace codegen {
 
 // Codec selection is a bitmask: several codecs can be requested at once
-// (e.g. `--codec uper,ber` emits both). `Both` keeps its historical meaning
-// (UPER + APER) and is numerically Uper|Aper.
+// (e.g. `--codec uper,ber` emits both).
+//
+// Values are ordered from simplest to hardest to implement:
+//   BER -> DER -> CER -> XER -> CXER -> E-XER -> JER
+//   -> OER -> COER -> APER -> UPER
+// `Per` is a combination alias (APER | UPER), not a codec of its own, and
+// does not occupy a bit of its own.
 enum class CodecKind : unsigned {
   None = 0,
-  Uper = 1,
-  Aper = 2,
-  Both = 3,  // Uper | Aper
-  Jer = 4,
-  Xer = 8,
-  Exer = 16,
-  Ber = 32,
-  Der = 64,
-  Oer = 128,
-  Coer = 256,
-  Cxer = 512,
+
+  // TLV-based binary encoding; the usual starting point.
+  Ber = 1 << 0,
+
+  // BER subset with distinguished (canonical) encoding constraints.
+  Der = 1 << 1,
+
+  // Canonical BER variant; adds streaming/indefinite-length rules and
+  // 1000-octet string fragmentation.
+  Cer = 1 << 2,
+
+  // XML text encoding.
+  Xer = 1 << 3,
+
+  // Canonical XML encoding.
+  Cxer = 1 << 4,
+
+  // Extended XML encoding rules.
+  Exer = 1 << 5,
+
+  // JSON Encoding Rules.
+  Jer = 1 << 6,
+
+  // Octet-aligned, record-like binary encoding.
+  Oer = 1 << 7,
+
+  // Canonical OER.
+  Coer = 1 << 8,
+
+  // Aligned Packed Encoding Rules.
+  Aper = 1 << 9,
+
+  // Unaligned Packed Encoding Rules; bit-level packing and
+  // constraint-driven layout make this the most complex.
+  Uper = 1 << 10,
+
+  // Combination alias: the two PER variants at once.
+  Per = Aper | Uper,
 };
 
 inline CodecKind operator|(CodecKind a, CodecKind b) {

@@ -56,7 +56,7 @@ gtest_discover_tests(asn1_per_tests)
 set(ASN1_PER_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_per_golden")
 add_custom_command(
   OUTPUT "${ASN1_PER_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_PER_GOLDEN_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec both
+  COMMAND asn1cxx --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec per
           --namespace pg
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
   DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
@@ -139,7 +139,7 @@ macro(asn1_gen_person codec ns subdir)
   list(APPEND ASN1_PERSON_GEN_OUTPUTS "${_outdir}/generated.cpp")
 endmacro()
 
-asn1_gen_person(both asn1_gen_per per)
+asn1_gen_person(per asn1_gen_per per)
 asn1_gen_person(oer asn1_gen_oer oer)
 asn1_gen_person(coer asn1_gen_coer coer)
 asn1_gen_person(ber asn1_gen_ber ber)
@@ -192,6 +192,29 @@ target_include_directories(asn1_tlv_oer_golden_tests PRIVATE "${ASN1_TLV_OER_GEN
 target_link_libraries(asn1_tlv_oer_golden_tests PRIVATE
   asn1::ber asn1::der asn1::oer asn1::jer GTest::gtest_main)
 gtest_discover_tests(asn1_tlv_oer_golden_tests)
+
+# CER (X.690) byte-level round-trips: indefinite wrappers (9.1), string
+# fragmentation (9.2), BIT STRING fragment initial octets (8.6.4), SET tag
+# ordering (9.3), unused-bit zeroing (11.2), canonical strictness, and the
+# CER/DER value-equivalence cross-check.
+set(ASN1_CER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_cer_golden")
+add_custom_command(
+  OUTPUT "${ASN1_CER_GEN_DIR}/generated.hpp" "${ASN1_CER_GEN_DIR}/generated.cpp"
+  COMMAND asn1cxx --emit-dir "${ASN1_CER_GEN_DIR}" --codec cer,der
+          --namespace asn1_cer
+          "${CMAKE_SOURCE_DIR}/tests/fixtures/cer/cer_golden.asn"
+  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/cer/cer_golden.asn"
+  COMMENT "Generating CER/DER C++ for cer_golden.asn"
+  VERBATIM
+)
+add_executable(asn1_cer_roundtrip_tests
+  cer/cer_roundtrip_test.cpp
+  "${ASN1_CER_GEN_DIR}/generated.cpp"
+)
+target_include_directories(asn1_cer_roundtrip_tests PRIVATE "${ASN1_CER_GEN_DIR}")
+target_link_libraries(asn1_cer_roundtrip_tests PRIVATE asn1::cer asn1::der
+                      GTest::gtest_main)
+gtest_discover_tests(asn1_cer_roundtrip_tests)
 
 # JER open-type round-trips for information-object-class fields (&Value).
 set(ASN1_IOC_JER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_ioc_jer")

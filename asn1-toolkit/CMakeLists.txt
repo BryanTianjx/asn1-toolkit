@@ -130,6 +130,16 @@ target_include_directories(asn1_der PUBLIC
 )
 target_link_libraries(asn1_der PUBLIC asn1::ber)
 
+add_library(asn1_cer STATIC
+  src/runtime/cer/codec.cpp
+)
+add_library(asn1::cer ALIAS asn1_cer)
+target_include_directories(asn1_cer PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(asn1_cer PUBLIC asn1::ber)
+
 add_library(asn1_per STATIC
   src/runtime/per/primitives.cpp
   src/runtime/per/codec.cpp

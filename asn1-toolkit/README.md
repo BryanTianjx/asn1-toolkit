@@ -4,13 +4,14 @@ C++17 ASN.1 compiler and codec runtime.
 
 ## Status
 
-**Phase 41** -- Review hardening.
+**Phase 43** -- CER (X.690) codec family.
 
-- Object-class field re-resolve (typed IE id/criticality; `&Value` stays open-type)
-- DEFAULT as plain fields; shared `BitStringValue`; BER/DER extension groups
-- PER constrained INTEGER rejects out-of-range (no clamp); codec length caps
-- Full RRC/LPP/S1AP emit gates (header smoke); Person + `rrc_slice` compile round-trips
-- Note: table-constraint typed IE open types and full-module compile CI remain follow-ons
+- CER: indefinite constructed wrappers (9.1), 1000-octet string fragmentation
+  (9.2 + 8.6.4), SET/SET OF canonical tag ordering (9.3), canonical strictness
+- All-TLV SET decoder fix: untagged-CHOICE SET components now dispatch on the
+  union of the choice's alternative tags (BER/DER/CER)
+- `cer_golden` fixture + 10 byte-pinned round-trip tests; CER/DER value equivalence
+- Full 12-codec emit compile gate: RRC/LPP/S1AP/rrc_slice/tlv_oer_golden/cer_golden
 
 ## Requirements
 
@@ -49,6 +50,8 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
 ./build/asn1cxx --emit-dir build/gen --codec jer examples/person.asn
 ./build/asn1cxx --emit-dir build/gen --codec exer examples/person.asn
 ./build/asn1cxx --emit-dir build/gen --codec ber examples/person.asn
+./build/asn1cxx --emit-dir build/gen --codec der examples/person.asn
+./build/asn1cxx --emit-dir build/gen --codec cer examples/person.asn
 ./build/asn1cxx --emit-dir build/gen --codec oer examples/person.asn
 ./build/asn1cxx --emit-dir build/gen --codec coer examples/person.asn
 ./build/asn1cxx --emit-dir build/gen --codec cxer examples/person.asn

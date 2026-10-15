@@ -35,8 +35,8 @@ asn1-toolkit 架构分析与优化方案
   per/codec.hpp       1,198 行 (header)
   ast/type.hpp        1,184 行 (header)
   其余各 500-1,200 行, 共 35,821 行 C++17
-测试: 8615 行 / 21 个测试域 / 306 项 CTest (tlv_oer_golden 8 项为
-  2026-10-14 P0-3 新增)
+测试: 8,800+ 行 / 22 个测试域 / 316 项 CTest (tlv_oer_golden 8 项 +
+  cer_golden 10 项为 2026-10-14/15 P0-3 + CER 家族新增)
 
 --------------------------------------------------------------------------------
 2. 核心优势 (每项附证据)
@@ -49,7 +49,7 @@ asn1-toolkit 架构分析与优化方案
   手写代码直接使用, 不必经过 asn1cxx。
 
 优势 2: 编码规则覆盖最全, 且实现复用而非复制
-  10 种: UPER/APER/BER/DER/OER/COER/XER/CXER/E-XER/JER/JERI
+  11 种: UPER/APER/BER/DER/CER/OER/COER/XER/CXER/E-XER/JER/JERI
   (对比: asn1c 6 种, Python asn1tools 8 种, 见对比文档)
   - UPER 与 APER 是同一 PER 实现的两个 Variant 参数, 对齐只发生在
     X.691 要求的原语内部 (非 "UPER+末尾填充");
@@ -86,7 +86,7 @@ asn1-toolkit 架构分析与优化方案
   RRC Rel-8 / LPP Rel-14 / S1AP Rel-14 全量 fixtures; emit 产物作为
   CMake 静态库编译门 (emit 成功 ≠ 可编译, 这是 skill 固化的核心
   纪律); rrc_slice UPER/OER emit + 已知 hex 往返。
-  P0-3 后: 四大 fixture × 9 codec 全量 emit 产物 -fsyntax-only
+  P0-3 + CER 后: 六 fixture × 12 codec 全量 emit 产物 -fsyntax-only
   门禁 (每族发射逻辑的产物首次全部经过编译验证)。
 
 优势 8: 零外部依赖
@@ -194,8 +194,8 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   命名空间字面量、解引用优先级等), 只有该族产物被编译检查才
   暴露; 此前这些缺陷全部潜伏。
   风险: 无功能风险 (纯产物正确性); 修复面横跨 6 个发射文件。
-  验证: 4 fixture × 9 codec 全量 -fsyntax-only 零错误 +
-  Release/sanitizer 306/306。
+  验证: 6 fixture × 12 codec 全量 -fsyntax-only 零错误 +
+  Release/sanitizer 316/316。
 
   实施结果:
   - 根因 1 (XER 命名空间): emit_xer 的 Element 类型硬编码
@@ -229,8 +229,8 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
     (混合标签/DEFAULT/SET/SET OF/嵌套 CHOICE/扩展) + 8 项往返
     测试 (字节级断言 30 0F 02 01 07 81 01 08 82 02 68 69
     A3 03 01 01 FF; DEFAULT 省略/携带 83 01 63 / 84 03 62 79 65)
-  - 验证: 4 fixture × 9 codec -fsyntax-only 零错误; Release +
-    sanitizer 306/306, 零 ASan/UBSan
+  - 验证: 6 fixture × 12 codec -fsyntax-only 零错误; Release +
+    sanitizer 316/316, 零 ASan/UBSan
 
 [P1-1] 金标准差分验证从 PER 扩展到其余 codec
   现状证据: tests/per/golden 是唯一 oracle 差分; OER/BER/DER/JER/
@@ -312,14 +312,14 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   同步更新 CMake 门禁确保 generated.cpp 真正被编译。✅ 已完成 2026-10-14
 第 2 步: P0-2 emit.cpp 按 codec 家族拆分 (先画依赖图再动手)。✅ 已完成 2026-10-14
 第 2.5 步: P0-3 全 codec 产物编译门禁 (非主 codec 产物从未验证可编译,
-  每族发射器各藏缺陷; 以 9 codec 全量 -fsyntax-only 门禁驱动修复)。
+  每族发射器各藏缺陷; 以 12 codec 全量 -fsyntax-only 门禁驱动修复)。
   ✅ 已完成 2026-10-14
 第 3 步: P1-1 OER/BER/DER 金标准扩展 (正确性投资, 服务 3GPP R17+
   OER 方向)。
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。
-后续: P1-2 CER、P2-2 分文件 emit、P2-3 增量生成按需排期。
+后续: P1-2 CER ✅ 已完成 2026-10-15、P2-2 分文件 emit、P2-3 增量生成按需排期。
 
-每步验证口径统一: ctest 306/306 (Release + sanitizer) + 受影响
+每步验证口径统一: ctest 316/316 (Release + sanitizer) + 受影响
 fixture 的产物 g++ -fsyntax-only 0 error (全 codec 位掩码, 见 P0-3)
 + 金标准向量零回归。
 ================================================================================

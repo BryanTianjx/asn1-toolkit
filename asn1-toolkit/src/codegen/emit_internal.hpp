@@ -529,21 +529,74 @@ class Emitter {
 
   // --- TLV family (emit_tlv.cpp) ---
 
+  /// TLV variant threaded through the TLV emitter: BER (basic), DER
+  /// (distinguished) and CER (canonical) share one emission shape and differ
+  /// only in the runtime namespace and the canonicalization rules applied.
+  enum class TlvKind { Ber, Der, Cer };
+
+  /// X.690 9.3 / X.680 8.6: the canonical position key of a SET component —
+  /// tag class first (universal < application < context < private), then the
+  /// tag number; the constructed bit only breaks ties. An untagged CHOICE
+  /// component is keyed by the SMALLEST tag in the choice, recursively
+  /// through nested untagged choices, so the key is static.
+  struct SetComponentKey {
+    unsigned cls = 0;
+    std::uint64_t number = 0;
+    bool constructed = false;
+
+    bool operator<(const SetComponentKey& o) const {
+      if (cls != o.cls) {
+        return cls < o.cls;
+      }
+      if (number != o.number) {
+        return number < o.number;
+      }
+      return constructed < o.constructed;
+    }
+  };
+
+    /**
+     *  Function    : set_component_key
+     *  Description : Computes the X.690 9.3 position key of a SET component.
+     *  Parameters  : f — const ir::Field& f
+     *  Returns     : SetComponentKey
+     */
+    SetComponentKey set_component_key(const ir::Field& f) const;
+
+    /**
+     *  Function    : set_fields_ordered
+     *  Description : Returns the SET components in X.690 9.3 canonical order.
+     *  Parameters  : set — const ir::SequenceDesc& set
+     *  Returns     : std::vector<const ir::Field*>
+     */
+    std::vector<const ir::Field*> set_fields_ordered(const ir::SequenceDesc& set) const;
+
+    /**
+     *  Function    : choice_dispatch_tags
+     *  Description : Returns the wire tag expressions identifying a SET
+     *                component that is an untagged CHOICE: the expected tag
+     *                of every alternative, recursing through alternatives
+     *                that are themselves untagged CHOICE types.
+     *  Parameters  : choice — const ir::ChoiceDesc& choice
+     *  Returns     : std::vector<std::string>
+     */
+    std::vector<std::string> choice_dispatch_tags(const ir::ChoiceDesc& choice) const;
+
     /**
      *  Function    : tlv_ns
-     *  Description : Computes tlv ns from (der).
-     *  Parameters  : der — bool der
+     *  Description : Computes tlv ns from (tlv).
+     *  Parameters  : tlv — TlvKind tlv
      *  Returns     : const char*
      */
-    const char* tlv_ns(bool der) const;
+    const char* tlv_ns(TlvKind tlv) const;
 
     /**
      *  Function    : tlv_fn
-     *  Description : Computes tlv fn from (der).
-     *  Parameters  : der — bool der
+     *  Description : Computes tlv fn from (tlv).
+     *  Parameters  : tlv — TlvKind tlv
      *  Returns     : const char*
      */
-    const char* tlv_fn(bool der) const;
+    const char* tlv_fn(TlvKind tlv) const;
 
     /**
      *  Function    : ber_tag_expr
@@ -572,36 +625,36 @@ class Emitter {
     /**
      *  Function    : emit_tlv_codec_fns
      *  Description : Performs emit tlv codec fns (definition).
-     *  Parameters  : out — std::ostream& out; id — ir::TypeId id; der — bool der
+     *  Parameters  : out — std::ostream& out; id — ir::TypeId id; tlv — TlvKind tlv
      *  Returns     : void
      */
-    void emit_tlv_codec_fns(std::ostream& out, ir::TypeId id, bool der);
+    void emit_tlv_codec_fns(std::ostream& out, ir::TypeId id, TlvKind tlv);
 
     void emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const ir::Field* field,
-                             const std::string& expr, bool der, const std::string& ind);
+                             const std::string& expr, TlvKind tlv, const std::string& ind);
 
     void emit_tlv_encode_content(std::ostream& out, const ir::Type& t, const std::string& expr,
-                               bool der, const std::string& ind);
+                               TlvKind tlv, const std::string& ind);
 
     void emit_tlv_sequence_field_encode(std::ostream& out, const ir::Field& f,
-                                      const std::string& expr, bool der,
+                                      const std::string& expr, TlvKind tlv,
                                       const std::string& ind);
 
     void emit_tlv_sequence_components(std::ostream& out, const ir::SequenceDesc& seq,
-                                    const std::string& expr, bool der,
+                                    const std::string& expr, TlvKind tlv,
                                     const std::string& ind);
 
     void emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const std::string& expr,
-                            bool der, const ir::Tag* override_tag, const std::string& ind);
+                            TlvKind tlv, const ir::Tag* override_tag, const std::string& ind);
 
     void emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const std::string& expr,
-                            bool der, const ir::Tag* override_tag, const std::string& ind);
+                            TlvKind tlv, const ir::Tag* override_tag, const std::string& ind);
 
     void emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, const std::string& expr,
-                                  bool der, const std::string& ind);
+                                  TlvKind tlv, const std::string& ind);
 
     void emit_tlv_field_decode_value(std::ostream& out, const ir::Type& ft, const ir::Field* field,
-                                   const std::string& expr, bool der, const std::string& ind);
+                                   const std::string& expr, TlvKind tlv, const std::string& ind);
 
  private:
   const ir::Model& model_;

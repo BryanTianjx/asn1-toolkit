@@ -28,19 +28,23 @@ namespace codegen {
 
   /**
    *  Function    : tlv_ns
-   *  Description : Computes tlv ns from (der).
-   *  Parameters  : der — bool der
+   *  Description : Computes tlv ns from (tlv).
+   *  Parameters  : tlv — TlvKind tlv
    *  Returns     : const char*
    */
-const char* Emitter::tlv_ns(bool der) const { return der ? "asn1::der" : "asn1::ber"; }
+const char* Emitter::tlv_ns(TlvKind tlv) const {
+  return tlv == TlvKind::Ber ? "asn1::ber" : (tlv == TlvKind::Cer ? "asn1::cer" : "asn1::der");
+}
 
   /**
    *  Function    : tlv_fn
-   *  Description : Computes tlv fn from (der).
-   *  Parameters  : der — bool der
+   *  Description : Computes tlv fn from (tlv).
+   *  Parameters  : tlv — TlvKind tlv
    *  Returns     : const char*
    */
-const char* Emitter::tlv_fn(bool der) const { return der ? "der" : "ber"; }
+const char* Emitter::tlv_fn(TlvKind tlv) const {
+  return tlv == TlvKind::Ber ? "ber" : (tlv == TlvKind::Cer ? "cer" : "der");
+}
 
   /**
    *  Function    : ber_tag_expr
@@ -112,6 +116,99 @@ std::uint64_t Emitter::universal_number_for(const ir::Type& t) {
     }
   }
 
+namespace {
+
+unsigned tag_class_rank(ir::TagClass c) {
+  switch (c) {
+    case ir::TagClass::Application:
+      return 1;
+    case ir::TagClass::Context:
+      return 2;
+    case ir::TagClass::Private:
+      return 3;
+    case ir::TagClass::Universal:
+    default:
+      return 0;
+  }
+}
+
+}  // namespace
+
+Emitter::SetComponentKey Emitter::set_component_key(const ir::Field& f) const {
+  const ir::Type& ft = resolve(model_, f.type);
+  const ir::Type& frt = ft.kind == ir::TypeKind::Referenced && ft.referenced.resolved != ir::kInvalidType
+                           ? resolve(model_, ft.referenced.resolved)
+                           : ft;
+  const bool untagged =
+      f.tag.cls == ir::TagClass::Universal && f.tag.number == 0 && !f.tag.is_explicit;
+  if (untagged && frt.kind == ir::TypeKind::Choice) {
+    // X.690 9.3: ordered as though the choice carried its smallest tag,
+    // including tags of untagged choice types nested within.
+    SetComponentKey best;
+    best.cls = 4;  // larger than any real class so the first alternative wins
+    for (const ir::Field* alt : choice_all_fields(frt.choice)) {
+      const SetComponentKey k = set_component_key(*alt);
+      if (k < best) {
+        best = k;
+      }
+    }
+    return best;
+  }
+  SetComponentKey k;
+  if (untagged) {
+    k.cls = 0;
+    k.number = universal_number_for(frt);
+    k.constructed = type_is_constructed(frt);
+  } else {
+    k.cls = tag_class_rank(f.tag.cls);
+    k.number = f.tag.number;
+    k.constructed = type_is_constructed(frt) || f.tag.is_explicit;
+  }
+  return k;
+}
+
+std::vector<const ir::Field*> Emitter::set_fields_ordered(const ir::SequenceDesc& set) const {
+  std::vector<const ir::Field*> fields;
+  for (const ir::Field& f : set.root) {
+    fields.push_back(&f);
+  }
+  for (const ir::Field& f : set.trailing_root) {
+    fields.push_back(&f);
+  }
+  std::stable_sort(fields.begin(), fields.end(),
+                   [this](const ir::Field* a, const ir::Field* b) {
+                     return set_component_key(*a) < set_component_key(*b);
+                   });
+  return fields;
+}
+
+std::vector<std::string> Emitter::choice_dispatch_tags(const ir::ChoiceDesc& choice) const {
+  std::vector<std::string> tags;
+  for (const ir::Field* alt : choice_all_fields(choice)) {
+    const ir::Type& at = resolve(model_, alt->type);
+    const ir::Type& art =
+        at.kind == ir::TypeKind::Referenced && at.referenced.resolved != ir::kInvalidType
+            ? resolve(model_, at.referenced.resolved)
+            : at;
+    const bool alt_untagged =
+        alt->tag.cls == ir::TagClass::Universal && alt->tag.number == 0 && !alt->tag.is_explicit;
+    if (alt_untagged && art.kind == ir::TypeKind::Choice) {
+      auto nested = choice_dispatch_tags(art.choice);
+      tags.insert(tags.end(), nested.begin(), nested.end());
+      continue;
+    }
+    ir::Tag t = alt->tag;
+    if (alt_untagged) {
+      // A natural-tagged alternative carries its universal type tag.
+      t.cls = ir::TagClass::Universal;
+      t.number = universal_number_for(art);
+      t.is_explicit = false;
+    }
+    tags.push_back(ber_tag_expr(t, type_is_constructed(art) || t.is_explicit));
+  }
+  return tags;
+}
+
   /**
    *  Function    : natural_tag_expr
    *  Description : Builds and returns a string for natural tag expr.
@@ -129,27 +226,38 @@ std::string Emitter::natural_tag_expr(const ir::Type& t) {
   /**
    *  Function    : emit_tlv_codec_fns
    *  Description : Performs emit tlv codec fns (definition).
-   *  Parameters  : out — std::ostream& out; id — ir::TypeId id; der — bool der
+   *  Parameters  : out — std::ostream& out; id — ir::TypeId id; tlv — TlvKind tlv
    *  Returns     : void
    */
-void Emitter::emit_tlv_codec_fns(std::ostream& out, ir::TypeId id, bool der) {
+void Emitter::emit_tlv_codec_fns(std::ostream& out, ir::TypeId id, TlvKind tlv) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     const ir::Type& t = model_.arena.get(id);
     const std::string name = named_type_cpp(t);
-    const char* suf = tlv_fn(der);
+    const char* suf = tlv_fn(tlv);
     std::ostream* body = begin_codec_fn(
         out, std::string("asn1::Result<void> encode_") + suf +
                 "(asn1::ByteWriter& w, const " + name + "& value)");
-    emit_tlv_encode_body(*body, t, "value", der, /*override_tag=*/nullptr, "  ");
+    emit_tlv_encode_body(*body, t, "value", tlv, /*override_tag=*/nullptr, "  ");
     *body << "  return asn1::Result<void>::success();\n}\n\n";
 
     body = begin_codec_fn(out, std::string("asn1::Result<void> decode_") + suf +
                                    "(asn1::ByteReader& r, " + name + "& value)");
-    emit_tlv_decode_body(*body, t, "value", der, /*override_tag=*/nullptr, "  ");
+    emit_tlv_decode_body(*body, t, "value", tlv, /*override_tag=*/nullptr, "  ");
     *body << "  return asn1::Result<void>::success();\n}\n\n";
   }
 
 void Emitter::emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const ir::Field* field,
-                             const std::string& expr, bool der, const std::string& ind) {
+                             const std::string& expr, TlvKind tlv, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
+    const std::string NS = tlv_ns(tlv);
     if (field && (field->tag.cls != ir::TagClass::Universal || field->tag.number != 0 ||
                   field->tag.is_explicit)) {
       if (field->tag.is_explicit) {
@@ -158,7 +266,7 @@ void Emitter::emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const
         out << ind << "  {\n";
         out << ind << "    asn1::ByteWriter& w = inner;\n";
         if (is_named(ft)) {
-          out << ind << "    if (auto r = encode_" << tlv_fn(der) << "(w, " << expr
+          out << ind << "    if (auto r = encode_" << tlv_fn(tlv) << "(w, " << expr
               << "); !r) return r;\n";
         } else {
           // EXPLICIT wraps the type's NATURAL encoding. Lowering stamps the
@@ -172,11 +280,11 @@ void Emitter::emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const
           natural.cls = ir::TagClass::Universal;
           natural.number = universal_number_for(ft);
           natural.is_explicit = false;
-          emit_tlv_encode_body(out, ft, expr, der, same_tag ? &natural : nullptr,
+          emit_tlv_encode_body(out, ft, expr, tlv, same_tag ? &natural : nullptr,
                                ind + "    ");
         }
         out << ind << "  }\n";
-        out << ind << "  asn1::ber::encode_constructed(w, "
+        out << ind << "  " << NS << "::encode_constructed(w, "
             << ber_tag_expr(field->tag, true) << ", asn1::Span<const std::uint8_t>(inner.buffer().data(), "
             << "inner.buffer().size()));\n";
         out << ind << "}\n";
@@ -188,85 +296,105 @@ void Emitter::emit_tlv_field_encode(std::ostream& out, const ir::Type& ft, const
         out << ind << "  asn1::ByteWriter inner;\n";
         out << ind << "  {\n";
         out << ind << "    asn1::ByteWriter& w = inner;\n";
-        emit_tlv_encode_content(out, ft, expr, der, ind + "    ");
+        emit_tlv_encode_content(out, ft, expr, tlv, ind + "    ");
         out << ind << "  }\n";
-        out << ind << "  asn1::ber::encode_constructed(w, "
+        out << ind << "  " << NS << "::encode_constructed(w, "
             << ber_tag_expr(field->tag, true)
             << ", asn1::Span<const std::uint8_t>(inner.buffer().data(), inner.buffer().size()));\n";
         out << ind << "}\n";
         return;
       }
-      emit_tlv_encode_body(out, ft, expr, der, &field->tag, ind);
+      emit_tlv_encode_body(out, ft, expr, tlv, &field->tag, ind);
       return;
     }
     if (is_named(ft)) {
-      out << ind << "if (auto r = encode_" << tlv_fn(der) << "(w, " << expr
+      out << ind << "if (auto r = encode_" << tlv_fn(tlv) << "(w, " << expr
           << "); !r) return r;\n";
     } else {
-      emit_tlv_encode_body(out, ft, expr, der, nullptr, ind);
+      emit_tlv_encode_body(out, ft, expr, tlv, nullptr, ind);
     }
   }
 
 void Emitter::emit_tlv_encode_content(std::ostream& out, const ir::Type& t, const std::string& expr,
-                               bool der, const std::string& ind) {
+                               TlvKind tlv, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     // Encode without outermost constructed wrapper (for IMPLICIT SEQUENCE/SET).
     const ir::Type& rt = t.kind == ir::TypeKind::Referenced && t.referenced.resolved != ir::kInvalidType
                              ? resolve(model_, t.referenced.resolved)
                              : t;
     if (rt.kind == ir::TypeKind::Sequence) {
-      emit_tlv_sequence_components(out, rt.sequence, expr, der, ind);
+      emit_tlv_sequence_components(out, rt.sequence, expr, tlv, ind);
     } else if (rt.kind == ir::TypeKind::Set) {
-      emit_tlv_sequence_components(out, rt.set, expr, der, ind);
+      emit_tlv_sequence_components(out, rt.set, expr, tlv, ind);
     } else {
-      emit_tlv_encode_body(out, rt, expr, der, nullptr, ind);
+      emit_tlv_encode_body(out, rt, expr, tlv, nullptr, ind);
     }
   }
 
 void Emitter::emit_tlv_sequence_field_encode(std::ostream& out, const ir::Field& f,
-                                      const std::string& expr, bool der,
+                                      const std::string& expr, TlvKind tlv,
                                       const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     const std::string fname = cpp_ident(f.name);
     const ir::Type& ft = resolve(model_, f.type);
     if (f.presence == ir::Presence::Optional) {
       out << ind << "if (" << expr << "." << fname << ") {\n";
-      emit_tlv_field_encode(out, ft, &f, expr + "." + fname + ".value()", der, ind + "  ");
+      emit_tlv_field_encode(out, ft, &f, expr + "." + fname + ".value()", tlv, ind + "  ");
       out << ind << "}\n";
     } else if (f.presence == ir::Presence::Default && f.default_value) {
       const std::string def_val = default_val_cpp(f);
       if (!def_val.empty()) {
         out << ind << "if (" << expr << "." << fname << " != " << def_val << ") {\n";
-        emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind + "  ");
+        emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind + "  ");
         out << ind << "}\n";
       } else {
-        emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind);
+        emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind);
       }
     } else {
-      emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind);
+      emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind);
     }
   }
 
 void Emitter::emit_tlv_sequence_components(std::ostream& out, const ir::SequenceDesc& seq,
-                                    const std::string& expr, bool der,
+                                    const std::string& expr, TlvKind tlv,
                                     const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     for (const ir::Field& f : seq.root) {
-      emit_tlv_sequence_field_encode(out, f, expr, der, ind);
+      emit_tlv_sequence_field_encode(out, f, expr, tlv, ind);
     }
     for (const ir::Field& f : seq.trailing_root) {
-      emit_tlv_sequence_field_encode(out, f, expr, der, ind);
+      emit_tlv_sequence_field_encode(out, f, expr, tlv, ind);
     }
     for (const auto& group : seq.extension_groups) {
       for (const ir::Field& f : group.fields) {
-        emit_tlv_sequence_field_encode(out, f, expr, der, ind);
+        emit_tlv_sequence_field_encode(out, f, expr, tlv, ind);
       }
     }
   }
 
 void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const std::string& expr,
-                            bool der, const ir::Tag* override_tag, const std::string& ind) {
+                            TlvKind tlv, const ir::Tag* override_tag, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     const ir::Type& rt = t.kind == ir::TypeKind::Referenced && t.referenced.resolved != ir::kInvalidType
                              ? resolve(model_, t.referenced.resolved)
                              : t;
-    const std::string NS = tlv_ns(der);
+    const std::string NS = tlv_ns(tlv);
     const std::string tag =
         override_tag ? ber_tag_expr(*override_tag, type_is_constructed(rt))
                      : (rt.tag.cls != ir::TagClass::Universal || rt.tag.number != 0
@@ -323,9 +451,16 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
       case ir::TypeKind::Set: {
         out << ind << "{\n";
         if (der && rt.kind == ir::TypeKind::Set) {
+          // X.690 9.3: components in canonical tag order. The order is
+          // computed statically — an untagged CHOICE component is keyed by
+          // the smallest tag in the choice (recursively), which the runtime
+          // cannot see inside an encoded value — so the parts vector comes
+          // out pre-ordered and the runtime must not re-sort.
           out << ind << "  std::vector<std::vector<std::uint8_t>> parts;\n";
-          auto emit_set_parts = [&](const std::vector<ir::Field>& fields) {
-            for (const ir::Field& f : fields) {
+          const auto ordered = set_fields_ordered(rt.set);
+          auto emit_set_parts = [&](const std::vector<const ir::Field*>& fields) {
+            for (const ir::Field* fp : fields) {
+              const ir::Field& f = *fp;
               const std::string fname = cpp_ident(f.name);
               const ir::Type& ft = resolve(model_, f.type);
               if (f.presence == ir::Presence::Optional) {
@@ -333,7 +468,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
                 out << ind << "    asn1::ByteWriter ew;\n";
                 out << ind << "    {\n";
                 out << ind << "      asn1::ByteWriter& w = ew;\n";
-                emit_tlv_field_encode(out, ft, &f, expr + "." + fname + ".value()", der,
+                emit_tlv_field_encode(out, ft, &f, expr + "." + fname + ".value()", tlv,
                                       ind + "      ");
                 out << ind << "    }\n";
                 out << ind << "    parts.push_back(ew.take());\n";
@@ -346,7 +481,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
                     out << ind << "    asn1::ByteWriter ew;\n";
                     out << ind << "    {\n";
                     out << ind << "      asn1::ByteWriter& w = ew;\n";
-                    emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind + "      ");
+                    emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind + "      ");
                     out << ind << "    }\n";
                     out << ind << "    parts.push_back(ew.take());\n";
                     out << ind << "  }\n";
@@ -357,7 +492,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
                 out << ind << "    asn1::ByteWriter ew;\n";
                 out << ind << "    {\n";
                 out << ind << "      asn1::ByteWriter& w = ew;\n";
-                emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind + "      ");
+                emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind + "      ");
                 out << ind << "    }\n";
                 out << ind << "    parts.push_back(ew.take());\n";
                 out << ind << "  }\n";
@@ -366,31 +501,35 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
                 out << ind << "    asn1::ByteWriter ew;\n";
                 out << ind << "    {\n";
                 out << ind << "      asn1::ByteWriter& w = ew;\n";
-                emit_tlv_field_encode(out, ft, &f, expr + "." + fname, der, ind + "      ");
+                emit_tlv_field_encode(out, ft, &f, expr + "." + fname, tlv, ind + "      ");
                 out << ind << "    }\n";
                 out << ind << "    parts.push_back(ew.take());\n";
                 out << ind << "  }\n";
               }
             }
           };
-          emit_set_parts(rt.set.root);
-          emit_set_parts(rt.set.trailing_root);
-          out << ind << "  asn1::der::encode_set(w, std::move(parts), " << tag << ");\n";
+          emit_set_parts(ordered);
+          if (cer) {
+            out << ind << "  " << NS << "::encode_set_ordered(w, std::move(parts), " << tag
+                << ");\n";
+          } else {
+            out << ind << "  " << NS << "::encode_set(w, std::move(parts), " << tag << ");\n";
+          }
         } else {
           out << ind << "  asn1::ByteWriter comps;\n";
           out << ind << "  {\n";
           out << ind << "    asn1::ByteWriter& w = comps;\n";
           if (rt.kind == ir::TypeKind::Sequence) {
-            emit_tlv_sequence_components(out, rt.sequence, expr, der, ind + "    ");
+            emit_tlv_sequence_components(out, rt.sequence, expr, tlv, ind + "    ");
           } else {
-            emit_tlv_sequence_components(out, rt.set, expr, der, ind + "    ");
+            emit_tlv_sequence_components(out, rt.set, expr, tlv, ind + "    ");
           }
           out << ind << "  }\n";
           if (der) {
-            out << ind << "  asn1::der::encode_sequence(w, asn1::Span<const std::uint8_t>("
+            out << ind << "  " << NS << "::encode_sequence(w, asn1::Span<const std::uint8_t>("
                 << "comps.buffer().data(), comps.buffer().size()), " << tag << ");\n";
           } else {
-            out << ind << "  asn1::ber::encode_constructed(w, " << tag
+            out << ind << "  " << NS << "::encode_constructed(w, " << tag
                 << ", asn1::Span<const std::uint8_t>(comps.buffer().data(), comps.buffer().size()));\n";
           }
         }
@@ -414,31 +553,31 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "    {\n";
           out << ind << "      asn1::ByteWriter& w = ew;\n";
           if (is_named(elem)) {
-            out << ind << "      if (auto r = encode_" << tlv_fn(der)
+            out << ind << "      if (auto r = encode_" << tlv_fn(tlv)
                 << "(w, elem); !r) return r;\n";
           } else {
-            emit_tlv_encode_body(out, elem, "elem", der, nullptr, ind + "      ");
+            emit_tlv_encode_body(out, elem, "elem", tlv, nullptr, ind + "      ");
           }
           out << ind << "    }\n";
           out << ind << "    parts.push_back(ew.take());\n";
           out << ind << "  }\n";
-          out << ind << "  asn1::der::encode_set(w, std::move(parts), " << tag << ");\n";
+          out << ind << "  " << NS << "::encode_set(w, std::move(parts), " << tag << ");\n";
         } else {
           out << ind << "  asn1::ByteWriter comps;\n";
           out << ind << "  for (const auto& elem : " << vec << ") {\n";
           out << ind << "    asn1::ByteWriter& w = comps;\n";
           if (is_named(elem)) {
-            out << ind << "    if (auto r = encode_" << tlv_fn(der)
+            out << ind << "    if (auto r = encode_" << tlv_fn(tlv)
                 << "(w, elem); !r) return r;\n";
           } else {
-            emit_tlv_encode_body(out, elem, "elem", der, nullptr, ind + "    ");
+            emit_tlv_encode_body(out, elem, "elem", tlv, nullptr, ind + "    ");
           }
           out << ind << "  }\n";
           if (der) {
-            out << ind << "  asn1::der::encode_sequence(w, asn1::Span<const std::uint8_t>("
+            out << ind << "  " << NS << "::encode_sequence(w, asn1::Span<const std::uint8_t>("
                 << "comps.buffer().data(), comps.buffer().size()), " << tag << ");\n";
           } else {
-            out << ind << "  asn1::ber::encode_constructed(w, " << tag
+            out << ind << "  " << NS << "::encode_constructed(w, " << tag
                 << ", asn1::Span<const std::uint8_t>(comps.buffer().data(), comps.buffer().size()));\n";
           }
         }
@@ -460,7 +599,7 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
           const std::string alt_local = "alt" + std::to_string(temp_counter_++);
           out << ind << "      const auto& " << alt_local << " = std::get<" << i << ">(" << expr
               << ".alt);\n";
-          emit_tlv_field_encode(out, ft, &f, alt_local + ".value", der, ind + "      ");
+          emit_tlv_field_encode(out, ft, &f, alt_local + ".value", tlv, ind + "      ");
           out << ind << "      break;\n";
           out << ind << "    }\n";
         }
@@ -478,13 +617,13 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
             << expr << ".type_id.data(), " << expr << ".type_id.size()));\n";
         out << ind << "  " << NS << "::encode_octet_string(comps, asn1::Span<const std::uint8_t>("
             << expr << ".value.data(), " << expr << ".value.size()));\n";
-        out << ind << "  asn1::ber::encode_constructed(w, " << tag
+        out << ind << "  " << NS << "::encode_constructed(w, " << tag
             << ", asn1::Span<const std::uint8_t>(comps.buffer().data(), comps.buffer().size()));\n";
         out << ind << "}\n";
         break;
       case ir::TypeKind::Referenced:
         if (rt.referenced.resolved != ir::kInvalidType) {
-          emit_tlv_encode_body(out, resolve(model_, rt.referenced.resolved), expr, der,
+          emit_tlv_encode_body(out, resolve(model_, rt.referenced.resolved), expr, tlv,
                                override_tag, ind);
         }
         break;
@@ -496,11 +635,16 @@ void Emitter::emit_tlv_encode_body(std::ostream& out, const ir::Type& t, const s
   }
 
 void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const std::string& expr,
-                            bool der, const ir::Tag* override_tag, const std::string& ind) {
+                            TlvKind tlv, const ir::Tag* override_tag, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     const ir::Type& rt = t.kind == ir::TypeKind::Referenced && t.referenced.resolved != ir::kInvalidType
                              ? resolve(model_, t.referenced.resolved)
                              : t;
-    const std::string NS = tlv_ns(der);
+    const std::string NS = tlv_ns(tlv);
     const std::string tag =
         override_tag ? ber_tag_expr(*override_tag, type_is_constructed(rt))
                      : (rt.tag.cls != ir::TagClass::Universal || rt.tag.number != 0
@@ -588,29 +732,111 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
       case ir::TypeKind::Set: {
         out << ind << "{\n";
         if (der && rt.kind == ir::TypeKind::Set) {
-          out << ind << "  auto content = asn1::der::decode_set(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_set(r, " << tag << ");\n";
         } else if (der) {
-          out << ind << "  auto content = asn1::der::decode_sequence(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_sequence(r, " << tag << ");\n";
         } else {
-          out << ind << "  auto content = asn1::ber::decode_constructed(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_constructed(r, " << tag << ");\n";
         }
         out << ind << "  if (!content) return content.error();\n";
         out << ind << "  asn1::ByteReader cr(content.value());\n";
         out << ind << "  {\n";
         out << ind << "    asn1::ByteReader& r = cr;\n";
-        const auto& fields = rt.kind == ir::TypeKind::Sequence ? rt.sequence.root : rt.set.root;
-        const auto& trailing =
-            rt.kind == ir::TypeKind::Sequence ? rt.sequence.trailing_root : rt.set.trailing_root;
-        for (const ir::Field& f : fields) {
-          emit_tlv_field_decode_stmt(out, f, expr, der, ind + "    ");
-        }
-        for (const ir::Field& f : trailing) {
-          emit_tlv_field_decode_stmt(out, f, expr, der, ind + "    ");
-        }
-        if (rt.kind == ir::TypeKind::Sequence) {
+        if (rt.kind == ir::TypeKind::Set) {
+          // SET: components arrive in canonical tag order (DER/CER) or in
+          // any order (BER); dispatch on the peeked tag instead of assuming
+          // declaration order (X.690 9.3/10.3 define the wire order, not
+          // the declaration order).
+          const auto ordered = set_fields_ordered(rt.set);
+          // DEFAULT components absent from the encoding take their default
+          // (X.690 11.5).
+          for (const ir::Field* fp : ordered) {
+            const ir::Field& f = *fp;
+            if (f.presence == ir::Presence::Default && f.default_value) {
+              const std::string def_expr = default_val_cpp(f);
+              if (!def_expr.empty()) {
+                out << ind << "    " << expr << "." << cpp_ident(f.name) << " = " << def_expr
+                    << ";\n";
+              }
+            }
+          }
+          // Mandatory components must be present.
+          for (const ir::Field* fp : ordered) {
+            const ir::Field& f = *fp;
+            if (f.presence == ir::Presence::Mandatory) {
+              out << ind << "    bool seen_" << cpp_ident(f.name) << " = false;\n";
+            }
+          }
+          out << ind << "    while (r.remaining() > 0) {\n";
+          out << ind << "      asn1::ByteReader peek_r(r.remaining_span());\n";
+          out << ind << "      auto hdr = asn1::ber::decode_tlv_header(peek_r);\n";
+          out << ind << "      if (!hdr) return hdr.error();\n";
+          for (const ir::Field* fp : ordered) {
+            const ir::Field& f = *fp;
+            const ir::Type& ft = resolve(model_, f.type);
+            const ir::Type& frt =
+                ft.kind == ir::TypeKind::Referenced && ft.referenced.resolved != ir::kInvalidType
+                    ? resolve(model_, ft.referenced.resolved)
+                    : ft;
+            const bool untagged_choice =
+                f.tag.cls == ir::TagClass::Universal && f.tag.number == 0 &&
+                !f.tag.is_explicit && frt.kind == ir::TypeKind::Choice;
+            if (untagged_choice) {
+              // An untagged CHOICE SET component carries no single tag:
+              // any of its alternatives' tags identifies it on the wire
+              // (X.680 8.6 keeps SET component tags distinct). Emitting
+              // the field placeholder tag (universal 0) here would never
+              // match a real encoding.
+              const auto dtags = choice_dispatch_tags(frt.choice);
+              out << ind << "      if (";
+              if (dtags.empty()) {
+                out << "false";  // empty CHOICE: matches nothing
+              } else {
+                for (std::size_t i = 0; i < dtags.size(); ++i) {
+                  if (i != 0) {
+                    out << " || ";
+                  }
+                  out << "hdr.value().tag == " << dtags[i];
+                }
+              }
+              out << ") {\n";
+            } else {
+              const std::string expect =
+                  ber_tag_expr(f.tag, type_is_constructed(ft) || f.tag.is_explicit);
+              out << ind << "      if (hdr.value().tag == " << expect << ") {\n";
+            }
+            if (f.presence == ir::Presence::Mandatory) {
+              out << ind << "        seen_" << cpp_ident(f.name) << " = true;\n";
+            }
+            emit_tlv_field_decode_value(out, ft, &f, expr + "." + cpp_ident(f.name), tlv,
+                                        ind + "        ");
+            out << ind << "      } else ";
+          }
+          out << ind << "      {\n";
+          out << ind << "        return asn1::make_error(asn1::Error::Code::InvalidArgument, "
+                 "r.offset(), \"unknown SET component tag\");\n";
+          out << ind << "      }\n";
+          out << ind << "    }\n";
+          for (const ir::Field* fp : ordered) {
+            const ir::Field& f = *fp;
+            if (f.presence == ir::Presence::Mandatory) {
+              out << ind << "    if (!seen_" << cpp_ident(f.name)
+                  << ") return asn1::make_error(asn1::Error::Code::InvalidArgument, r.offset(), "
+                     "\"missing mandatory SET component\");\n";
+            }
+          }
+        } else {
+          const auto& fields = rt.sequence.root;
+          const auto& trailing = rt.sequence.trailing_root;
+          for (const ir::Field& f : fields) {
+            emit_tlv_field_decode_stmt(out, f, expr, tlv, ind + "    ");
+          }
+          for (const ir::Field& f : trailing) {
+            emit_tlv_field_decode_stmt(out, f, expr, tlv, ind + "    ");
+          }
           for (const auto& group : rt.sequence.extension_groups) {
             for (const ir::Field& f : group.fields) {
-              emit_tlv_field_decode_stmt(out, f, expr, der, ind + "    ");
+              emit_tlv_field_decode_stmt(out, f, expr, tlv, ind + "    ");
             }
           }
         }
@@ -628,11 +854,11 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         const std::string vec = is_named(rt) ? expr + ".value" : expr;
         out << ind << "{\n";
         if (der && rt.kind == ir::TypeKind::SetOf) {
-          out << ind << "  auto content = asn1::der::decode_set(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_set(r, " << tag << ");\n";
         } else if (der) {
-          out << ind << "  auto content = asn1::der::decode_sequence(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_sequence(r, " << tag << ");\n";
         } else {
-          out << ind << "  auto content = asn1::ber::decode_constructed(r, " << tag << ");\n";
+          out << ind << "  auto content = " << NS << "::decode_constructed(r, " << tag << ");\n";
         }
         out << ind << "  if (!content) return content.error();\n";
         out << ind << "  asn1::ByteReader cr(content.value());\n";
@@ -642,10 +868,10 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         out << ind << "    {\n";
         out << ind << "      asn1::ByteReader& r = cr;\n";
         if (is_named(elem)) {
-          out << ind << "      if (auto dr = decode_" << tlv_fn(der)
+          out << ind << "      if (auto dr = decode_" << tlv_fn(tlv)
               << "(r, elem); !dr) return dr;\n";
         } else {
-          emit_tlv_decode_body(out, elem, "elem", der, nullptr, ind + "      ");
+          emit_tlv_decode_body(out, elem, "elem", tlv, nullptr, ind + "      ");
         }
         out << ind << "    }\n";
         out << ind << "    " << vec << ".push_back(std::move(elem));\n";
@@ -657,35 +883,81 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         const auto all = choice_all_fields(rt.choice);
         const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
         out << ind << "{\n";
-        out << ind << "  auto hdr = asn1::ber::decode_tlv_header(r);\n";
-        out << ind << "  if (!hdr) return hdr.error();\n";
-        out << ind << "  if (hdr.value().length.indefinite) {\n";
-        out << ind << "    return asn1::make_error(asn1::Error::Code::Unsupported, r.offset(), "
-               "\"indefinite CHOICE not generated\");\n";
-        out << ind << "  }\n";
-        out << ind << "  auto content = r.read(hdr.value().length.value);\n";
-        out << ind << "  if (!content) return content.error();\n";
-        out << ind << "  const auto hdr_tag = hdr.value().tag;\n";
+        if (cer) {
+          // CER: peek the tag without consuming, then decode the matched
+          // alternative's complete TLV in place (header included). A
+          // constructed alternative arrives in the indefinite form
+          // (X.690 9.1), so the definite-content buffer of the BER/DER
+          // shape cannot be used here.
+          out << ind << "  auto hdr_tag = asn1::ber::peek_tlv_tag(r);\n";
+          out << ind << "  if (!hdr_tag) return hdr_tag.error();\n";
+        } else {
+          out << ind << "  auto hdr = asn1::ber::decode_tlv_header(r);\n";
+          out << ind << "  if (!hdr) return hdr.error();\n";
+          out << ind << "  if (hdr.value().length.indefinite) {\n";
+          out << ind << "    return asn1::make_error(asn1::Error::Code::Unsupported, r.offset(), "
+                 "\"indefinite CHOICE not generated\");\n";
+          out << ind << "  }\n";
+          out << ind << "  auto content = r.read(hdr.value().length.value);\n";
+          out << ind << "  if (!content) return content.error();\n";
+          out << ind << "  const auto hdr_tag = hdr.value().tag;\n";
+        }
         for (std::size_t i = 0; i < all.size(); ++i) {
           const ir::Field& f = *all[i];
           const ir::Type& ft = resolve(model_, f.type);
           const std::string expect =
               ber_tag_expr(f.tag, type_is_constructed(ft) || f.tag.is_explicit);
-          out << ind << "  if (hdr_tag == " << expect << ") {\n";
+          // cer: hdr_tag is the non-consuming peek result (Result<Tag>).
+          out << ind << "  if (" << (cer ? "hdr_tag.value()" : "hdr_tag") << " == " << expect
+              << ") {\n";
+          // Unique local: a nested CHOICE alternative re-enters this
+          // decode block, and a duplicate `alt` would shadow the
+          // assignment target at the bottom of the block.
+          const std::string alt_dec = "alt" + std::to_string(temp_counter_++);
           if (!choice_ty.empty()) {
-            out << ind << "    " << choice_ty << "::" << cpp_ident(f.name) << "_ alt{};\n";
+            out << ind << "    " << choice_ty << "::" << cpp_ident(f.name) << "_ " << alt_dec << "{};\n";
           } else {
-            out << ind << "    " << cpp_ident(f.name) << "_ alt{};\n";
+            out << ind << "    " << cpp_ident(f.name) << "_ " << alt_dec << "{};\n";
           }
-          if (f.tag.is_explicit) {
+          const bool tag_override =
+              f.tag.cls != ir::TagClass::Universal || f.tag.number != 0;
+          if (cer) {
+            if (f.tag.is_explicit) {
+              // EXPLICIT wrapper: the wrapper itself is indefinite under
+              // CER; the inner value keeps its own encoding.
+              out << ind << "    auto wcontent = " << NS << "::decode_constructed(r, "
+                  << expect << ");\n";
+              out << ind << "    if (!wcontent) return wcontent.error();\n";
+              out << ind << "    asn1::ByteReader cr(wcontent.value());\n";
+              out << ind << "    {\n";
+              out << ind << "      asn1::ByteReader& r = cr;\n";
+              if (is_named(ft)) {
+                out << ind << "      if (auto dr = decode_" << tlv_fn(tlv)
+                    << "(r, " + alt_dec + ".value); !dr) return dr;\n";
+              } else {
+                emit_tlv_decode_body(out, ft, alt_dec + ".value", tlv, nullptr, ind + "      ");
+              }
+              out << ind << "    }\n";
+            } else if (tag_override || !is_named(ft)) {
+              // Tagged (IMPLICIT) or inline alternative: decode in place with
+              // the override tag — the encoded tag is the override, not the
+              // type's natural one.
+              emit_tlv_decode_body(out, ft, alt_dec + ".value", tlv, &f.tag, ind + "    ");
+            } else {
+              // Untagged named alternative: the encoding carries the natural
+              // tag, so the out-of-line decode applies directly.
+              out << ind << "    if (auto dr = decode_" << tlv_fn(tlv)
+                  << "(r, " + alt_dec + ".value); !dr) return dr;\n";
+            }
+          } else if (f.tag.is_explicit) {
             out << ind << "    asn1::ByteReader cr(content.value());\n";
             out << ind << "    {\n";
             out << ind << "      asn1::ByteReader& r = cr;\n";
             if (is_named(ft)) {
-              out << ind << "      if (auto dr = decode_" << tlv_fn(der)
-                  << "(r, alt.value); !dr) return dr;\n";
+              out << ind << "      if (auto dr = decode_" << tlv_fn(tlv)
+                  << "(r, " + alt_dec + ".value); !dr) return dr;\n";
             } else {
-              emit_tlv_decode_body(out, ft, "alt.value", der, nullptr, ind + "      ");
+              emit_tlv_decode_body(out, ft, alt_dec + ".value", tlv, nullptr, ind + "      ");
             }
             out << ind << "    }\n";
           } else {
@@ -696,14 +968,14 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
             out << ind << "    {\n";
             out << ind << "      asn1::ByteReader& r = rr;\n";
             if (is_named(ft)) {
-              out << ind << "      if (auto dr = decode_" << tlv_fn(der)
-                  << "(r, alt.value); !dr) return dr;\n";
+              out << ind << "      if (auto dr = decode_" << tlv_fn(tlv)
+                  << "(r, " + alt_dec + ".value); !dr) return dr;\n";
             } else {
-              emit_tlv_decode_body(out, ft, "alt.value", der, nullptr, ind + "      ");
+              emit_tlv_decode_body(out, ft, alt_dec + ".value", tlv, nullptr, ind + "      ");
             }
             out << ind << "    }\n";
           }
-          out << ind << "    " << expr << ".alt = std::move(alt);\n";
+          out << ind << "    " << expr << ".alt = std::move(" + alt_dec + ");\n";
           out << ind << "  } else ";
         }
         out << "{\n";
@@ -715,7 +987,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
       }
       case ir::TypeKind::InstanceOf:
         out << ind << "{\n";
-        out << ind << "  auto content = asn1::ber::decode_constructed(r, " << tag << ");\n";
+        out << ind << "  auto content = " << NS << "::decode_constructed(r, " << tag << ");\n";
         out << ind << "  if (!content) return content.error();\n";
         out << ind << "  asn1::ByteReader cr(content.value());\n";
         out << ind << "  auto tid = " << NS << "::decode_object_identifier(cr);\n";
@@ -728,7 +1000,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
         break;
       case ir::TypeKind::Referenced:
         if (rt.referenced.resolved != ir::kInvalidType) {
-          emit_tlv_decode_body(out, resolve(model_, rt.referenced.resolved), expr, der,
+          emit_tlv_decode_body(out, resolve(model_, rt.referenced.resolved), expr, tlv,
                                override_tag, ind);
         }
         break;
@@ -740,7 +1012,12 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
   }
 
 void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, const std::string& expr,
-                                  bool der, const std::string& ind) {
+                                  TlvKind tlv, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
     const std::string fname = cpp_ident(f.name);
     const ir::Type& ft = resolve(model_, f.type);
     if (f.presence == ir::Presence::Default) {
@@ -750,7 +1027,7 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       out << ind << "  asn1::ByteReader peek_r(r.remaining_span());\n";
       out << ind << "  auto hdr = asn1::ber::decode_tlv_header(peek_r);\n";
       out << ind << "  if (hdr && hdr.value().tag == " << expect << ") {\n";
-      emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, der, ind + "    ");
+      emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, tlv, ind + "    ");
       out << ind << "  } else {\n";
       if (f.default_value) {
         const std::string def_expr = default_val_cpp(f);
@@ -785,29 +1062,35 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       // nested optional assignment silently targets the wrong object.
       const std::string tmp = "field" + std::to_string(temp_counter_++);
       out << ind << "    " << type_cpp(f.type) << " " << tmp << "{};\n";
-      emit_tlv_field_decode_value(out, ft, &f, tmp, der, ind + "    ");
+      emit_tlv_field_decode_value(out, ft, &f, tmp, tlv, ind + "    ");
       out << ind << "    " << expr << "." << fname << " = std::move(" << tmp << ");\n";
       out << ind << "  } else {\n";
       out << ind << "    " << expr << "." << fname << " = std::nullopt;\n";
       out << ind << "  }\n";
       out << ind << "}\n";
     } else {
-      emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, der, ind);
+      emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, tlv, ind);
     }
   }
 
 void Emitter::emit_tlv_field_decode_value(std::ostream& out, const ir::Type& ft, const ir::Field* field,
-                                   const std::string& expr, bool der, const std::string& ind) {
+                                   const std::string& expr, TlvKind tlv, const std::string& ind) {
+    // Canonical TLV: DER and CER share every canonicalization branch; CER
+    // additionally selects the indefinite-length wrappers and string
+    // fragmentation of the asn1::cer runtime.
+    const bool der = tlv != TlvKind::Ber;
+    const bool cer = tlv == TlvKind::Cer;
+    const std::string NS = tlv_ns(tlv);
     if (field && field->tag.is_explicit) {
       out << ind << "{\n";
-      out << ind << "  auto content = asn1::ber::decode_constructed(r, "
+      out << ind << "  auto content = " << NS << "::decode_constructed(r, "
           << ber_tag_expr(field->tag, true) << ");\n";
       out << ind << "  if (!content) return content.error();\n";
       out << ind << "  asn1::ByteReader cr(content.value());\n";
       out << ind << "  {\n";
       out << ind << "    asn1::ByteReader& r = cr;\n";
       if (is_named(ft)) {
-        out << ind << "    if (auto dr = decode_" << tlv_fn(der) << "(r, " << expr
+        out << ind << "    if (auto dr = decode_" << tlv_fn(tlv) << "(r, " << expr
             << "); !dr) return dr;\n";
       } else {
         // Mirror of the encode side: when the inline type carries the same
@@ -820,7 +1103,7 @@ void Emitter::emit_tlv_field_decode_value(std::ostream& out, const ir::Type& ft,
         natural.cls = ir::TagClass::Universal;
         natural.number = universal_number_for(ft);
         natural.is_explicit = false;
-        emit_tlv_decode_body(out, ft, expr, der, same_tag ? &natural : nullptr,
+        emit_tlv_decode_body(out, ft, expr, tlv, same_tag ? &natural : nullptr,
                              ind + "    ");
       }
       out << ind << "  }\n";
@@ -828,14 +1111,14 @@ void Emitter::emit_tlv_field_decode_value(std::ostream& out, const ir::Type& ft,
       return;
     }
     if (field && field->tag.cls != ir::TagClass::Universal) {
-      emit_tlv_decode_body(out, ft, expr, der, &field->tag, ind);
+      emit_tlv_decode_body(out, ft, expr, tlv, &field->tag, ind);
       return;
     }
     if (is_named(ft)) {
-      out << ind << "if (auto dr = decode_" << tlv_fn(der) << "(r, " << expr
+      out << ind << "if (auto dr = decode_" << tlv_fn(tlv) << "(r, " << expr
           << "); !dr) return dr;\n";
     } else {
-      emit_tlv_decode_body(out, ft, expr, der, nullptr, ind);
+      emit_tlv_decode_body(out, ft, expr, tlv, nullptr, ind);
     }
   }
 

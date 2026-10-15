@@ -474,8 +474,8 @@ void Emitter::emit_header(std::ostream& out) {
                           CodecKind::None;
     const bool emit_oer =
         (options_.codec & (CodecKind::Oer | CodecKind::Coer)) != CodecKind::None;
-    const bool emit_tlv =
-        (options_.codec & (CodecKind::Ber | CodecKind::Der)) != CodecKind::None;
+    const bool emit_tlv = (options_.codec & (CodecKind::Ber | CodecKind::Der |
+                                             CodecKind::Cer)) != CodecKind::None;
     out << "#include <algorithm>\n"
         << "#include <asn1/runtime/bigint.hpp>\n"
         << "#include <asn1/runtime/bit_string.hpp>\n";
@@ -519,6 +519,9 @@ void Emitter::emit_header(std::ostream& out) {
           << "#include <asn1/runtime/ber/codec.hpp>\n";
       if ((options_.codec & CodecKind::Der) != CodecKind::None) {
         out << "#include <asn1/runtime/der/codec.hpp>\n";
+      }
+      if ((options_.codec & CodecKind::Cer) != CodecKind::None) {
+        out << "#include <asn1/runtime/cer/codec.hpp>\n";
       }
     }
     out << "\n"
@@ -570,10 +573,13 @@ void Emitter::emit_header(std::ostream& out) {
         emit_oer_codec_fns(out, id);
       }
       if ((options_.codec & CodecKind::Ber) != CodecKind::None) {
-        emit_tlv_codec_fns(out, id, /*der=*/false);
+        emit_tlv_codec_fns(out, id, TlvKind::Ber);
       }
       if ((options_.codec & CodecKind::Der) != CodecKind::None) {
-        emit_tlv_codec_fns(out, id, /*der=*/true);
+        emit_tlv_codec_fns(out, id, TlvKind::Der);
+      }
+      if ((options_.codec & CodecKind::Cer) != CodecKind::None) {
+        emit_tlv_codec_fns(out, id, TlvKind::Cer);
       }
     }
 

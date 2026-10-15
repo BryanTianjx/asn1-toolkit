@@ -177,6 +177,9 @@ struct TlvHeader {
  */
 Result<TlvHeader> decode_tlv_header(ByteReader& in);
 
+/// Read the identifier octets of the next TLV WITHOUT consuming them.
+Result<Tag> peek_tlv_tag(ByteReader& in);
+
 /// Require end-of-contents octets 0x00 0x00 (indefinite constructed values).
 /**
  *  Function    : decode_end_of_contents

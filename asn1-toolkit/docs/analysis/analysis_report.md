@@ -85,7 +85,7 @@ Phase 41 (Review Hardening) 完成 (最新提交 d57dd96):
 --------------------------------------------------------------------------------
 6. 编译器接口 (asn1cxx)
 --------------------------------------------------------------------------------
-命令: --dump-ast, --dump-ir, --emit-dir, --codec {uper|aper|both|jer|xer|exer|ber|der|oer|coer|cxer}
+命令: --dump-ast, --dump-ir, --emit-dir, --codec {uper|aper|per|cer|jer|xer|exer|ber|der|oer|coer|cxer}
 
 --------------------------------------------------------------------------------
 7. 测试覆盖

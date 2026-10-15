@@ -28,6 +28,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
    ./build/asn1cxx --emit-dir build/gen --codec aper  examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec ber   examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec der   examples/person.asn
+   ./build/asn1cxx --emit-dir build/gen --codec cer   examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec oer   examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec coer  examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec jer   examples/person.asn
@@ -35,7 +36,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
    ./build/asn1cxx --emit-dir build/gen --codec cxer  examples/person.asn
    ./build/asn1cxx --emit-dir build/gen --codec exer  examples/person.asn
 
-可用 --codec 选项: {uper, aper, both, jer, xer, exer, ber, der, oer, coer, cxer}
+可用 --codec 选项: {uper, aper, per, cer, jer, xer, exer, ber, der, oer, coer, cxer}
 
    组合生成: --codec 支持逗号分隔的多编解码组合, 例如:
    ./build/asn1cxx --emit-dir build/gen --codec uper,ber examples/person.asn
@@ -63,7 +64,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
   ctest --test-dir build --output-on-failure
 
 测试目录结构 (tests/):
-  aper/, ber/, coer/, cxer/, der/, exer/, jer/, jeri/, oer/, per/, uper/ - 各编码规则
+  aper/, ber/, cer/, coer/, cxer/, der/, exer/, jer/, jeri/, oer/, per/, uper/ - 各编码规则
   codegen/         - 代码生成测试
   common/          - 共享工具测试
   constraints/     - 约束测试
@@ -79,7 +80,7 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 
 六、参考与文档
 --------------------------------------------------------------------------------
-- 架构设计: docs/ARCHITECTURE.md (414 行, 完整流水线、编码规则行为、阶段记录 1-42)
+- 架构设计: docs/ARCHITECTURE.md (417 行, 完整流水线、编码规则行为、阶段记录 1-43)
 - 参考树说明: docs/ARCHITECTURE.md 第 1 行 (pasn1/, asn1c, Python_asn1tools/, FFASN1dump/ 不属于本构建)
 - 版权头维护脚本: scripts/add_file_headers.py (自动添加 PROCODEC 头信息到 .cpp/.hpp)
 - 分析报告归档 (docs/analysis/):
@@ -93,8 +94,8 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
 2. 电信 fixtures 测试覆盖 parse + analyze + emit，不声称完整 3GPP 编解码完全对等
 3. 许可证文件尚未添加 (README 标注 TBD); 代码头已标注 PROCODEC 版权 (2026-2031)
 4. 后续工作已明确记录: 表约束类型化开放类型已完成; 全 codec 产物编译门禁
-   (9 codec emit + -fsyntax-only) 已于 2026-10-14 完成 (见
-   docs/analysis/architecture_review_and_optimization.md P0-3);
+   (12 codec emit + -fsyntax-only) 已于 2026-10-15 完成 (见
+   docs/analysis/architecture_review_and_optimization.md P0-3), CER 家族同批落地;
    许可证文件、PER/APER 协议级消息金标准向量扩展仍未完成
 
 八、快速命令清单

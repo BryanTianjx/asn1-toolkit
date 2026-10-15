@@ -303,9 +303,9 @@ Base64), ARRAY (SEQUENCE as JSON array; absent optionals as null), NAME
 TEXT (ENUMERATED identifier transform), UNWRAPPED (CHOICE without wrapper object).
 Frontend parses `JER INSTRUCTIONS`, type-prefix instructions, and
 `ENCODING-CONTROL JER`; semantic IR records `JerEncoding` / field NAME;
-`--codec` selects emitted codecs: `uper` / `aper` / `both` / `jer` / `xer` /
-`exer` / `ber` / `der` / `oer` / `coer` / `cxer`. JER includes SequenceOf/SetOf
-decode (array or OBJECT form). Object-class `&Value` open types lower to a byte
+`--codec` selects emitted codecs: `uper` / `aper` / `per` / `cer` / `jer` /
+`xer` / `exer` / `ber` / `der` / `oer` / `coer` / `cxer`. JER includes
+SequenceOf/SetOf decode (array or OBJECT form). Object-class `&Value` open types lower to a byte
 vector and JER-encode as hex OCTET STRING (BASE64 instruction honored);
 `INSTANCE OF` decodes from the `[type-id, value]` JSON array it encodes to.
 
@@ -326,13 +326,14 @@ reports only `"parse failed"` when a token or type name is known.
 GoogleTest, one binary per area, registered with CTest.
 
 - Unit tests for lexer, parser, AST, semantic analyzer, constraints,
-  BitReader/BitWriter, BER, DER, UPER, APER, OER, COER, XER, CXER, E-XER, JER, JERI.
+  BitReader/BitWriter, BER, DER, CER, UPER, APER, OER, COER, XER, CXER, E-XER, JER, JERI.
 - Round-trip: `decode(encode(v)) == v` without needing the compiler.
 - Checked-in hex vectors from X.691 examples.
 - Integration (Phase 11/39): `.asn` → `asn1cxx` → compile → encode → decode for
   Person across PER/OER/COER/BER/DER/JER and for the RRC telecom slice (UPER).
-- All-codec compile gate: RRC/LPP/S1AP/`tlv_oer_golden` emitted with the full
-  9-codec bitmask (`uper,ber,der,oer,coer,jer,xer,exer,cxer`) and
+- All-codec compile gate: RRC/LPP/S1AP/rrc_slice/`tlv_oer_golden`/`cer_golden`
+  emitted with the full 12-codec bitmask
+  (`uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer`) and
   `g++ -fsyntax-only`-checked — every codec family carries its own copy of the
   emitter logic, and each family had at least one defect only visible under its
   own output.
@@ -340,6 +341,13 @@ GoogleTest, one binary per area, registered with CTest.
   textual/untagged tags with byte-pinned DER (X.680 25.3), DEFAULT omission and
   non-default carry (X.690 11.5), SET/SET OF/SEQUENCE OF, nested CHOICE, across
   BER/DER/OER/JER.
+- `cer_golden` round-trips (`asn1_cer_roundtrip_tests`): byte-pinned CER
+  (X.690) — indefinite wrappers (9.1), OCTET STRING / BIT STRING fragmentation
+  (9.2 + 8.6.4), SET tag ordering (9.3 + X.680 8.6, incl. the untagged-CHOICE
+  smallest-tag rule computed statically by the emitter), SET OF octet order,
+  CHOICE tag dispatch, CER/DER value equivalence, canonical strictness. No
+  external CER oracle exists (asn1c v0.9.29 and asn1tools have no CER), so the
+  vectors are clause-derived and cross-checked against DER values.
 - Optional cross-check against pycrate/asn1c when present on `PATH`.
 
 ## Development phases
@@ -386,6 +394,7 @@ GoogleTest, one binary per area, registered with CTest.
 40. Full RRC/LPP/S1AP emit — nested names + parameterized IE fields (done)
 41. Review hardening — OCF re-resolve, DEFAULT, PER constraints, BitString, caps (done)
 42. All-codec emitted-code hardening — 9-codec compile gates (done): XER/EXER/CXER/JER/OER/COER/TLV output compile-verified for the first time; fixed XML namespace selection, deref precedence, inline-list `.value`, nested-CHOICE qualification, decode-temp and alt-local shadowing (unique `temp_counter_` names), JER choice-decode returns, X.680 25.3 automatic tagging, field-aware DEFAULT lowering, X.690 8.5 explicit-tag natural encoding, X.696 8.7.2 OER choice tag; `tlv_oer_golden` fixture + 8 round-trip tests
+43. CER (X.690) codec family (done): BER-primitive strategy layer (`src/runtime/cer/codec.cpp`) with indefinite constructed wrappers (9.1), 1000-octet string fragmentation (9.2 + 8.6.4 BIT STRING initial octet), unused-bit masking (11.2), SET/SET OF tag ordering (9.3 — untagged CHOICE keyed by its smallest tag, computed statically via `Emitter::set_component_key` and emitted pre-ordered through `encode_set_ordered`), canonical strictness; `TlvKind` routing through the whole `emit_tlv.cpp` family; `cer_golden` fixture + 10 byte-pinned round-trip tests; fixed the all-TLV SET decoder dispatch for untagged-CHOICE components (was emitting the universal-0 placeholder tag, now the union of the choice's alternative tags)
 
 ## Telecom validation (Phase 14 / 38 / 39 / 40)
 
@@ -396,10 +405,11 @@ GoogleTest, one binary per area, registered with CTest.
 | S1AP Rel-14 | `tests/fixtures/telecom/s1ap_14_4_0/` | parse + analyze + APER emit (ProtocolIE-Field) |
 | RRC slice | `tests/fixtures/telecom/rrc_slice/` | UPER/OER emit + UPER round-trip vs known hex |
 | Person | `examples/person.asn` | UPER/APER/OER/COER/BER/DER/JER compile round-trips |
-| tlv_oer_golden | `tests/fixtures/telecom/tlv_oer_golden.asn` | 9-codec compile gate + BER/DER/OER/JER round-trips with byte-pinned tags and DEFAULT behaviour |
+| tlv_oer_golden | `tests/fixtures/telecom/tlv_oer_golden.asn` | 12-codec compile gate + BER/DER/OER/JER round-trips with byte-pinned tags and DEFAULT behaviour |
+| cer_golden | `tests/fixtures/cer/cer_golden.asn` | 12-codec compile gate + CER byte-pinned round-trips (indefinite wrappers, fragmentation, SET ordering, CER/DER value equivalence) |
 
 CTest: `asn1_telecom_tests`, `asn1_telecom_roundtrip_tests`, `asn1_codegen_roundtrip_tests`,
-`asn1_tlv_oer_golden_tests`.
+`asn1_tlv_oer_golden_tests`, `asn1_cer_roundtrip_tests`.
 See `tests/fixtures/telecom/README.md`. Not full 3GPP codec parity.
 
 ## Tradeoffs

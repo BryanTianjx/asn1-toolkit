@@ -220,6 +220,56 @@ Result<TlvHeader> decode_tlv_header(ByteReader& in) {
 }
 
 /**
+ *  Function    : peek_tlv_tag
+ *  Description : Reads the identifier octets of the next TLV WITHOUT
+ *                consuming them. The generated CHOICE decoder dispatches on
+ *                the tag first and then decodes the matched alternative in
+ *                place (header included); a consuming header read would leave
+ *                the alternative decode without its tag octets.
+ *  Parameters  : in — ByteReader& in
+ *  Returns     : Result<Tag>
+ */
+Result<Tag> peek_tlv_tag(ByteReader& in) {
+  auto b0 = in.peek(0);
+  if (!b0) {
+    return make_error(Error::Code::InvalidArgument, in.offset(), "truncated tag octets");
+  }
+  const std::uint8_t first = b0.value();
+  Tag tag;
+  tag.cls = static_cast<TagClass>((first >> 6) & 0x03u);
+  tag.constructed = (first & 0x20u) != 0;
+  const std::uint8_t low = static_cast<std::uint8_t>(first & 0x1Fu);
+  if (low != 0x1Fu) {
+    tag.number = low;
+    return tag;
+  }
+  // High-tag-number form: same validation as decode_tag, via peek only.
+  tag.number = 0;
+  bool first_octet = true;
+  std::size_t i = 1;
+  for (;;) {
+    auto b = in.peek(i);
+    if (!b) {
+      return make_error(Error::Code::InvalidArgument, in.offset(), "truncated tag octets");
+    }
+    if (first_octet && b.value() == 0x80u) {
+      return make_error(Error::Code::InvalidArgument, in.offset(),
+                        "invalid high-tag-number encoding (leading 0x80)");
+    }
+    first_octet = false;
+    if (tag.number > (UINT64_MAX >> 7)) {
+      return make_error(Error::Code::LengthOverflow, in.offset(), "tag number overflow");
+    }
+    tag.number = (tag.number << 7) | (b.value() & 0x7Fu);
+    ++i;
+    if ((b.value() & 0x80u) == 0) {
+      break;
+    }
+  }
+  return tag;
+}
+
+/**
  *  Function    : decode_end_of_contents
  *  Description : Returns success or an error from decode end of contents.
  *  Parameters  : in — ByteReader& in
