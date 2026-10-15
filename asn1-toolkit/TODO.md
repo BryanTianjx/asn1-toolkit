@@ -1,6 +1,6 @@
 # 状态清单 — asn1-toolkit 修复与构建验证
 
-状态：2026-10-13（PER/APER 金标准向量对验通过 + 扩展 addition X.691 19.9 编码修复后）
+状态：2026-10-15（P2-1 bit_io 批量位写 + benchmark 量化后）
 
 ## 已完成
 
@@ -29,6 +29,7 @@
 | CER (X.690) 编解码器家族 | 第 12 个 codec 家族端到端落地：`src/runtime/cer/codec.cpp`（561 行，BER 原语策略层：9.1 构造值一律不定长 `30 80 … 00 00`（含 CHOICE 替代）、9.2 超 1000 内容八位组的 OCTET STRING/UTF8String 切分为 ≤1000 原始分片、8.6.4 BIT STRING 分片各自携带初始(未用位)八位组且计入 1000 预算、11.2 末八位组未用位清零、9.3 SET/SET OF 标签序排序（未打标签 CHOICE 按选择项中最小标签 emit 时静态定序 + `encode_set_ordered` 不运行时重排；SET OF 按编码字节串升序）、canonical 严格性（拒绝 CER 要求不定长处的定长形式））；`emit_tlv.cpp` 按 `TlvKind{Ber,Der,Cer}` 路由（`tlv_ns`/`tlv_fn`，`der = tlv != Ber` 覆盖 CER 的 SET/SET OF 排序路径）；CMake `asn1_cer` 静态库 + CLI `--codec cer`；`tests/fixtures/cer/cer_golden.asn` + `asn1_cer_roundtrip_tests`（10 项字节级金标准：不定长包装、SET 标签序、CHOICE 原始/构造替代派发、OCTET/BIT STRING 分片、SET OF 字节序、SET 内未打标签 CHOICE 最小标签定序、CER/DER 值等价、定长包装拒绝）。无外部 CER oracle（asn1c v0.9.29 与 asn1tools 均无 CER），金标准由 X.690 条文推导 + DER 值等价交叉验证。顺带修复全 TLV 家族 SET 解码器潜在缺陷：SET 内未打标签 CHOICE 组件的解码派发键此前生成 `universal(0, true)` 占位标签（永不匹配真实编码），改为 emit 时计算该 CHOICE 全部（递归嵌套）替代标签的并集作派发条件——BER/DER/CER 同路径受影响，由新 fixture 首次暴露 | Release + sanitizer 双门禁 316/316；五大 fixture（RRC/LPP/S1AP/rrc_slice/cer_golden）× 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`-fsyntax-only` 零错误 |
 
 | BER/DER/OER 金标准差分向量 + OER SET 规范序（P1-1） | 金标准验证从 PER 扩展到 BER/DER/OER：`scripts/gen_tlv_golden.py`（oracle 策略：asn1tools 为 BER/OER 向量源；asn1c 仲裁 DER——asn1tools 不排序 SET/SET OF，X.690 11.6 要求 SET 按 X.680 8.6 标签序、SET OF 按编码八位组串升序，asn1c 的 `der_encode` 胜出并写回向量；asn1c 的 `oer_encode` 对 SET 值段错误（asn1c 已知 bug），OER 列保留 asn1tools；BER 无规范 SET 序（X.690 8.14 仅要求构造形式），SET 用例 BER 列记 '-' 由 DER 列承担排序证明）+ `tests/fixtures/telecom/tlv_golden.asn`（16 用例：IMPLICIT/EXPLICIT 上下文标签、乱序标签 SET、SET OF、DEFAULT 省略/携带、NULL/负数/REAL、可扩展 ENUMERATED、嵌套 CHOICE、扩展 addition）+ `tests/tlv/tlv_golden_vectors_test.cpp`（16 用例 × 3 codec 字节级断言 + oracle 字节解码往返；DER SET OF 往返期望值为规范序）。OER SET 组件按 X.696 18.2 规范（标签）序 emit：root 组件（root + trailing_root）在 emit 时按 `set_component_key` 稳定排序，preamble 位序与解码路径镜像同一顺序（扩展 addition 保持定义序，18.2 NOTE 1）——由新向量首次暴露（此前 OER SET 按定义序 emit，字节与 oracle 不符）。顺带修复生成器两处驱动缺陷：conv_tlv 期望 hex 文本输入（此前传原始字节全部 "odd-length hex" 失败）、stdout 已是 hex 文本（此前二次 `.hex()` 双重编码） | Release + sanitizer 319/319；tlv_golden fixture 全 12 codec `-fsyntax-only` 零错误；金标准向量零回归 |
+| P2-1 bit_io 批量位写 + benchmark 量化 | 运行时写路径逐比特循环改批量：`put_bits(value,nbits)` 先填半字节再整字节写；新增 `BitWriter::put_bitmap(Span<byte-per-bit>)` 按 64 位打包一次 `put_bits`；`put_octets`/`put_bits(Span)` 在八位对齐流上直接批量拷贝；`put_bit` 下标除法改 `>>3`/`&7`；`encode_bitmap` 委托 `put_bitmap`，BIT STRING 分片写路径改走 `put_bits(Span)` 批量路径。同机同会话前后对比：bitmap 密集型写（BitIoBenchmark，10×64-bit bitmap+交错小字段）196,532→626,075 ops/sec（≈3.2×），UPER 往返 844k→~950k ops/sec（+12%）。输出字节与逐位循环逐比特一致（同一 MSB-first 语义），由 per_golden/tlv_golden/cer_golden 三套金标准零回归证明；`put_bits(Span)` 快速路径在 sub-octet tail 缺源字节时回退逐位循环（不越界，与旧行为一致）。发射器未改动，全 codec 编译门禁不受影响 | 新增 `BitIoBenchmark.PresenceBitmapWrite`；Release + sanitizer 320/320；三套金标准向量零回归 |
 
 ## 剩余 / 未完成
 
@@ -40,8 +41,8 @@
 
 ## 构建状态
 
-- 默认（Release）：**319/319 通过**，0 失败
-- Sanitizer（ASan+UBSan，Debug）：**319/319 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译）
+- 默认（Release）：**320/320 通过**，0 失败
+- Sanitizer（ASan+UBSan，Debug）：**320/320 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译）
 - 全 codec 编译门禁：tlv_oer_golden.asn + tlv_golden.asn + cer_golden.asn + RRC(8.6.0) + LPP(14.3.0) + S1AP(14.4.0) + rrc_slice 七 fixture × 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误
 - 金标准差分验证：PER/APER（per_golden，asn1c oracle）+ BER/DER/OER（tlv_golden，asn1tools + asn1c oracle）双套字节级对验通过
 - 三大 3GPP fixture（RRC/LPP/S1AP）emit 产物全量编译门禁通过（现在编译的是真实定义，此前为 stub）

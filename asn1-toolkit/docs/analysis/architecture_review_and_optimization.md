@@ -35,9 +35,10 @@ asn1-toolkit 架构分析与优化方案
   per/codec.hpp       1,198 行 (header)
   ast/type.hpp        1,184 行 (header)
   其余各 500-1,200 行, 共 35,821 行 C++17
-测试: 8,800+ 行 / 22 个测试域 / 319 项 CTest (tlv_oer_golden 8 项 +
+测试: 8,800+ 行 / 22 个测试域 / 320 项 CTest (tlv_oer_golden 8 项 +
   cer_golden 10 项为 2026-10-14/15 P0-3 + CER 家族新增; tlv_golden
-  3 项为 2026-10-15 P1-1 新增)
+  3 项为 2026-10-15 P1-1 新增; BitIoBenchmark 1 项为 2026-10-15
+  P2-1 新增)
 
 --------------------------------------------------------------------------------
 2. 核心优势 (每项附证据)
@@ -94,6 +95,14 @@ asn1-toolkit 架构分析与优化方案
   无 Boost、无 multiprecision (BigInt 自研)、C++17 only
   (不用 std::span/std::expected, 自备 Result/Span)。
   价值: 交叉编译到工具链受限的目标平台无障碍。
+
+优势 9: 位写路径为吞吐设计 — bitmap 密集消息不付逐位税
+  证据: BitWriter 的 put_bits/put_bitmap/put_octets 在八位对齐流上
+  走整字节批量写, presence bitmap (byte-per-bit) 按 64 位打包一次
+  写出; 实测 bitmap 密集型写 3.2×, UPER 往返 +12% (P2-1, 2026-10-15),
+  输出字节与逐位循环逐比特一致 (三套金标准向量零回归守门)。
+  价值: RRC/LPP/S1AP 这类 preamble/bitmap 密集的 PDU 编码吞吐直接
+  受益, 且优化只发生在运行时原语层, 不破坏分层铁律。
 
 --------------------------------------------------------------------------------
 3. 量化现状 (实测, 2026-10-13)
@@ -263,17 +272,36 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
   oracle, 由 X.690 条文推导 + DER 值等价交叉验证); 顺带修复全 TLV
   SET 解码器未打标签 CHOICE 派发; Release + sanitizer 316/316。
 
-[P2-1] bit_io 逐位写路径优化
+[P2-1] bit_io 逐位写路径优化  ✅ 已完成 (2026-10-15)
   现状证据: BitWriter::put_bit 每比特做除法取字节下标 + 分支 + OR;
-  UPER 的 presence bitmap/扩展 bitmap 大量逐位调用。
-  方案: put_bits 已有; 让 presence bitmap 走一次 put_bits(打包值)
-  或在 BitWriter 内缓存当前字节, 消除逐位重复计算。
+  encode_bitmap / put_bits(value,nbits) / put_bits(Span,nbits) 全部
+  逐比特循环; UPER 的 presence bitmap/扩展 bitmap 大量逐位调用。
+  方案: put_bits(value, nbits) 改为先填当前半字节、再整字节批量写;
+  put_bitmap(Span<byte-per-bit>) 按 64 位打包后一次 put_bits;
+  put_octets / put_bits(Span) 在八位对齐流上直接 memcpy 级批量拷;
+  put_bit 下标除法改位移 (>>3 / &7); encode_bitmap 与 BIT STRING
+  分片写路径全部改走新批量接口。
   预期收益: PER 编码吞吐提升 (bitmap 密集的消息类型显著);
   对 BIT STRING 内容路径 (put_bits(Span)) 无影响。
   风险: 对齐语义 (align_to_octet 时机) 不能变, 改动需金标准向量
   零回归守门。
   验证: per_golden_vectors_test 全部通过 + benchmark 对比
   (tests/codegen/codec_benchmark_test.cpp 已有框架)。
+
+  实施结果 (同机同会话前后对比, Release -O2):
+  - 新增 BitIoBenchmark.PresenceBitmapWrite (10×64-bit bitmap +
+    交错 6-bit/1-bit 小字段, bitmap 密集型写形态): 196,532 →
+    626,075 ops/sec (≈3.2×)
+  - UPER 往返 micro-benchmark: 844,276 → ~950,000 ops/sec (+12%);
+    OER/BER/JER 无显著变化 (各自走字节路径)
+  - 输出字节逐比特一致: 批量路径与逐位循环同一 MSB-first 语义,
+    由 per_golden (UPER/APER 54 向量) + tlv_golden + cer_golden
+    金标准零回归证明
+  - 边界处理: put_bits(Span) 快速路径要求 tail <8 bit 时源多一个
+    字节, 否则回退逐位循环 (与旧行为一致, 不越界); put_bitmap 按
+    64 位分块打包, 任意长度正确
+  - 验证: Release 320/320 (新增 1 项 benchmark) + sanitizer 320/320
+    + 三套金标准向量零回归; 发射器未改动, 全 codec 编译门禁不受影响
 
 [P2-2] 大模块分文件/分命名空间 emit
   现状证据: RRC 单头 33,697 行 (即便 P0-1 拆声明后仍可观);
@@ -326,9 +354,11 @@ asn1_codegen 库重编译 (改 emit.cpp 后, -j1)  18.9s  ← 实测
 第 3 步: P1-1 OER/BER/DER 金标准扩展 (正确性投资, 服务 3GPP R17+
   OER 方向)。
 第 4 步: P2-1 bit_io 批量位写 + benchmark 量化。
+  ✅ 已完成 2026-10-15 (bitmap 写 3.2×, UPER 往返 +12%,
+  320/320 双门禁 + 三套金标准零回归)。
 后续: P1-2 CER ✅ 已完成 2026-10-15、P2-2 分文件 emit、P2-3 增量生成按需排期。
 
-每步验证口径统一: ctest 319/319 (Release + sanitizer) + 受影响
+每步验证口径统一: ctest 320/320 (Release + sanitizer) + 受影响
 fixture 的产物 g++ -fsyntax-only 0 error (全 codec 位掩码, 见 P0-3)
 + 金标准向量零回归。
 ================================================================================

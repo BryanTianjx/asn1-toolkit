@@ -97,13 +97,12 @@ void encode_bit_length_chunks(BitWriter& out, Variant variant, std::size_t bit_l
   std::size_t bit_offset = 0;
   for (;;) {
     const std::size_t chunk = encode_length_determinant(out, variant, remaining);
-    // Write `chunk` bits starting at bit_offset from `bits`.
-    for (std::size_t i = 0; i < chunk; ++i) {
-      const std::size_t abs = bit_offset + i;
-      const std::uint8_t byte = bits[abs / 8];
-      const bool bit = ((byte >> (7 - (abs % 8))) & 1u) != 0;
-      out.put_bit(bit);
-    }
+    // Write `chunk` bits starting at bit_offset from `bits`. put_bits takes
+    // a bulk path when the stream is octet-aligned (P2-1).
+    const std::size_t byte_off = bit_offset / 8;
+    out.put_bits(Span<const std::uint8_t>(bits.data() + byte_off,
+                                          bits.size() - byte_off),
+                 chunk);
     bit_offset += chunk;
     remaining -= chunk;
     if (chunk < 16384) {

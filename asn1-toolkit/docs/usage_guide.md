@@ -97,7 +97,9 @@ asn1-toolkit 使用说明 (基于实际 README.md + CMakeLists.txt + 目录内�
    (12 codec emit + -fsyntax-only) 已于 2026-10-15 完成 (见
    docs/analysis/architecture_review_and_optimization.md P0-3), CER 家族同批落地;
    BER/DER/OER 金标准差分验证已于 2026-10-15 完成 (P1-1, asn1tools/asn1c
-   oracle, 见 tests/tlv/golden/); 许可证文件、协议级消息金标准向量扩展仍未完成
+   oracle, 见 tests/tlv/golden/); bit_io 批量位写已于 2026-10-15 完成
+   (P2-1, bitmap 密集型写 3.2×, 见 BitIoBenchmark); 许可证文件、
+   协议级消息金标准向量扩展仍未完成
 
 八、快速命令清单
 --------------------------------------------------------------------------------

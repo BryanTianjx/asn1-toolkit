@@ -329,6 +329,11 @@ GoogleTest, one binary per area, registered with CTest.
   BitReader/BitWriter, BER, DER, CER, UPER, APER, OER, COER, XER, CXER, E-XER, JER, JERI.
 - Round-trip: `decode(encode(v)) == v` without needing the compiler.
 - Checked-in hex vectors from X.691 examples.
+- Throughput micro-benchmark (`asn1_codec_benchmark_tests`): Person codec
+  round-trips plus `BitIoBenchmark.PresenceBitmapWrite`, a bitmap-dense
+  BitWriter pattern (10×64-bit presence bitmaps + interleaved small fields).
+  P2-1 bulk bit writing: 196k → 626k ops/sec on that pattern, UPER round-trip
+  +12%, output bytes bit-identical to the per-bit loop (golden-vector guarded).
 - Integration (Phase 11/39): `.asn` → `asn1cxx` → compile → encode → decode for
   Person across PER/OER/COER/BER/DER/JER and for the RRC telecom slice (UPER).
 - All-codec compile gate: RRC/LPP/S1AP/rrc_slice/`tlv_oer_golden`/`tlv_golden`/`cer_golden`

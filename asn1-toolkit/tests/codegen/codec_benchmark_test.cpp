@@ -29,6 +29,7 @@
 #include <asn1/runtime/bit_io.hpp>
 #include <asn1/runtime/byte_io.hpp>
 #include <asn1/runtime/jer/json.hpp>
+#include <asn1/runtime/per/primitives.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -128,5 +129,31 @@ TEST(CodecBenchmark, JerEncodeDecode) {
     }
   });
   std::printf("[bench] JER round-trip: %.0f ops/sec\n", ops);
+  EXPECT_GT(ops, 1000.0);
+}
+
+TEST(BitIoBenchmark, PresenceBitmapWrite) {
+  // P2-1 quantification: a bitmap-dense write pattern (10 x 64-bit presence
+  // bitmaps + interleaved small fields per op), the shape UPER spends its
+  // per-bit calls on. Output correctness is guarded by per_golden vectors;
+  // this measures throughput only.
+  std::vector<std::uint8_t> bm(64);
+  for (std::size_t i = 0; i < bm.size(); ++i) {
+    bm[i] = (i % 3 == 0) ? 1 : 0;
+  }
+  const auto bits = asn1::Span<const std::uint8_t>(bm.data(), bm.size());
+  double ops = ops_per_sec([&] {
+    for (int i = 0; i < kIters; ++i) {
+      asn1::BitWriter w;
+      for (int k = 0; k < 10; ++k) {
+        asn1::per::encode_bitmap(w, bits);
+        w.put_bits(static_cast<std::uint64_t>(k) * 7u + 1u, 6);
+        w.put_bit((k & 1) != 0);
+      }
+      const auto bytes = w.take();
+      if (bytes.size() != 89) { std::abort(); }
+    }
+  });
+  std::printf("[bench] BitWriter bitmap write: %.0f ops/sec\n", ops);
   EXPECT_GT(ops, 1000.0);
 }
