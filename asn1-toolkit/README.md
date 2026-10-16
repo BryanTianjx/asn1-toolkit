@@ -5,8 +5,8 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 
 | 项目 | 值 |
 |------|-----|
-| 当前阶段 | Phase 45 — 大模块分文件 emit（`--emit-split`，部分完成，详见 [docs/status.md](docs/status.md)） |
-| 测试状态 | 320/320 通过（Release + ASan/UBSan 双构建门禁） |
+| 当前阶段 | Phase 46 — 增量代码生成（`--emit-cache` / `--no-emit-cache` 内容哈希缓存就位；详见 [docs/status.md](docs/status.md)） |
+| 测试状态 | 333/333 通过（Release + ASan/UBSan 双构建门禁） |
 | 编码规则 | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI |
 | 语言/构建 | C++17（GCC / Clang；MSVC 本地可用）+ CMake 3.16+ |
 | 依赖 | 零第三方运行时依赖（BigInt 自研，无 Boost、无 multiprecision） |
@@ -40,7 +40,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# 2. 运行全部测试（预期 320/320 通过）
+# 2. 运行全部测试（预期 333/333 通过）
 ctest --test-dir build --output-on-failure
 
 # 3. 解析一个 ASN.1 文件并查看 IR

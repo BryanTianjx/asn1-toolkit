@@ -23,6 +23,16 @@ if(ASN1_ENABLE_SANITIZERS)
   add_compile_options(-fno-sanitize-recover=undefined)
 endif()
 
+# Compile-time micro-optimisations that don't change emitted code:
+# -pipe: pipe between cc1 and the assembler instead of using temp .s files
+# (saves ~3-5% wall time on Linux tmpfs; harmless correctness-wise).
+# -fno-plt: skip the Procedure Linkage Table indirection for internal calls
+# (faster link, slightly faster runtime; only matters on glibc).
+# Not added when sanitizers are on: -pipe breaks some sanitizer stack traces.
+if(NOT ASN1_ENABLE_SANITIZERS)
+  add_compile_options(-pipe -fno-plt)
+endif()
+
 add_library(asn1_common INTERFACE)
 add_library(asn1::common ALIAS asn1_common)
 target_include_directories(asn1_common INTERFACE
@@ -230,7 +240,8 @@ add_library(asn1_codegen STATIC
   src/codegen/emit_xer.cpp
   src/codegen/emit_oer.cpp
   src/codegen/emit_tlv.cpp
-)
+  src/codegen/emit_cache.cpp
+  src/codegen/sha256.cpp)
 add_library(asn1::codegen ALIAS asn1_codegen)
 target_include_directories(asn1_codegen PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

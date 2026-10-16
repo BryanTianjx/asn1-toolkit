@@ -317,6 +317,12 @@ macro(asn1_fixture_compile_gate name codec lib fixture)
   add_library(asn1_${name}_compile STATIC "${_dir}/generated.cpp")
   target_include_directories(asn1_${name}_compile PRIVATE "${_dir}")
   target_link_libraries(asn1_${name}_compile PRIVATE asn1::${lib})
+  # Compile gate only — we don't ship this static lib, we just want it to
+  # build clean. Drop optimization to -O1 (no -O3 inline expansion across
+  # the multi-MB generated .cpp files) for ~2x faster compile on the
+  # 3GPP fixtures. Still ABI-compatible with the runtime libs because
+  # -O1 keeps standard calling conventions.
+  target_compile_options(asn1_${name}_compile PRIVATE -O1)
 endmacro()
 
 asn1_fixture_compile_gate(rrc_full uper per rrc_8_6_0/EUTRA-RRC-Definitions.asn)
@@ -355,6 +361,9 @@ foreach(_pair IN LISTS _all_codec_pairs)
   add_library(asn1_lpp_single_${_codec}_compile STATIC "${_dir}/generated.cpp")
   target_include_directories(asn1_lpp_single_${_codec}_compile PRIVATE "${_dir}")
   target_link_libraries(asn1_lpp_single_${_codec}_compile PRIVATE asn1::${_lib})
+  # Compile gate only — see macro comment above. -O1 shaves ~half the
+  # compile time across the 12 single-codec LPP gates.
+  target_compile_options(asn1_lpp_single_${_codec}_compile PRIVATE -O1)
 endforeach()
 
 # Split emit compile gates (--emit-split): per-module <Module>.hpp/.cpp
@@ -382,6 +391,10 @@ macro(asn1_fixture_split_gate name codec lib fixture)
   add_library(asn1_split_${name} STATIC ${_srcs})
   target_include_directories(asn1_split_${name} PRIVATE "${_dir}")
   target_link_libraries(asn1_split_${name} PRIVATE asn1::${lib})
+  # Same compile-only -O1 optimisation as the flat fixture gate (the
+  # aggregate unit .cpp files for S1AP exceed 1 MB and the bottleneck is
+  # -O3's inliner/vectoriser pass).
+  target_compile_options(asn1_split_${name} PRIVATE -O1)
 endmacro()
 
 # LPP: single module -> one unit file. S1AP: three units (CommonDataTypes,
@@ -421,3 +434,15 @@ target_include_directories(asn1_codec_benchmark_tests PRIVATE "${ASN1_PERSON_GEN
 target_link_libraries(asn1_codec_benchmark_tests PRIVATE
   asn1::per asn1::oer asn1::coer asn1::ber asn1::der asn1::jer GTest::gtest_main)
 gtest_discover_tests(asn1_codec_benchmark_tests)
+
+# P2-3: content-hash cache unit tests. The fixture root is exposed so the
+# split-mode tests can locate `tests/fixtures/telecom/{lpp,s1ap}_*/...`
+# without baking an absolute path into the source.
+add_executable(asn1_emit_cache_tests
+  codegen/emit_cache_test.cpp
+)
+target_compile_definitions(asn1_emit_cache_tests PRIVATE
+  ASN1CXX_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests")
+target_link_libraries(asn1_emit_cache_tests PRIVATE
+  asn1::frontend asn1::semantic asn1::codegen GTest::gtest_main)
+gtest_discover_tests(asn1_emit_cache_tests)

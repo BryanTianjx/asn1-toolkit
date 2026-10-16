@@ -108,6 +108,27 @@ struct EmitOptions {
   /// and an aggregate `<basename>.hpp` includes them all. Set by the CLI's
   /// --emit-split flag.
   bool emit_split = false;
+  /// When true (P2-3 default) `CppGenerator::emit` and `emit_split` consult a
+  /// content-hash cache stored in `<emit_dir>/.asn1cxx-cache/`: if a unit's
+  /// source inputs (file path + content sha256) and emit parameters are
+  /// unchanged since the last successful emit, the previously written
+  /// outputs are reused verbatim and emit is skipped. The cache is best
+  /// effort — any hash read failure, malformed cache file, or post-write
+  /// mismatch transparently falls back to a full re-emit. Set by the CLI's
+  /// `--emit-cache` / `--no-emit-cache` flags; CI golden comparisons
+  /// typically pass `--no-emit-cache` to disable caching.
+  bool emit_cache = true;
+  /// P2-3: source ASN.1 paths (absolute) that contribute to this emit.
+  /// When `emit_cache` is true, the content sha256 of these files is
+  /// folded into the cache key. The CLI passes the user-supplied `.asn`
+  /// inputs here; tests can leave it empty to disable source-keying.
+  std::vector<std::filesystem::path> source_paths;
+  /// P2-3: output directory. When `emit_cache` is true, the cache is read
+  /// from and written to `<emit_dir>/.asn1cxx-cache/`; expected output
+  /// file paths are computed relative to this dir for verification.
+  /// Ignored by the legacy stream-based `emit(stream, stream)` API, by
+  /// `emit_header_string()`, and when `emit_cache` is false.
+  std::filesystem::path emit_dir;
 };
 
 class CppGenerator {
@@ -139,7 +160,7 @@ class CppGenerator {
   std::string emit_header_string(const ir::Model& model, const EmitOptions& options,
                                  Diagnostics& diag);
 
-  /// Split emission (options.emit_split): writes one `<Module>.hpp` /
+  /// Split emit (options.emit_split): writes one `<Module>.hpp` /
   /// `<Module>.cpp` pair per ASN.1 module into `dir`, plus an aggregate
   /// `<options.basename>.hpp` that includes every module header. Each
   /// module's types are emitted into a nested namespace matching the module
@@ -148,6 +169,17 @@ class CppGenerator {
   /// ignored in split mode).
   void emit_split(const ir::Model& model, const EmitOptions& options,
                   Diagnostics& diag, const std::filesystem::path& dir);
+
+  /// Flat single-namespace emit into a directory: writes
+  /// `<options.basename>.hpp` (and `.cpp` when `emit_inline` is false) to
+  /// `dir`. Identical to `emit(stream, stream)` when `options.emit_cache`
+  /// is false; when `emit_cache` is true (default) it consults a content-
+  /// hash cache in `<dir>/.asn1cxx-cache/` and skips emit when the unit's
+  /// sources + emit parameters are unchanged since the last successful
+  /// run. Use this overload instead of the stream-based one whenever the
+  /// caller can name the output directory (CI, CLI drivers, etc.).
+  void emit_to_dir(const ir::Model& model, const EmitOptions& options, Diagnostics& diag,
+                   const std::filesystem::path& dir);
 };
 
 }  // namespace codegen

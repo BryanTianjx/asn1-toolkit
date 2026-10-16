@@ -41,8 +41,8 @@
 
 ## 测试体系
 
-GoogleTest，一个可执行覆盖一个领域，全部注册进 CTest。当前共 **31 个测试
-可执行 / 320 个用例**。
+GoogleTest，一个可执行覆盖一个领域，全部注册进 CTest。当前共 **32 个测试
+可执行 / 332 个用例**（31 个历史领域 + 1 个 P2-3 新增 `asn1_emit_cache_tests`）。
 
 ### 编译器与基础
 
@@ -148,6 +148,23 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
 运行时改动后**必须重新生成产物再 diff** —— 对着旧产物 diff 会得出"修复无效"
 的错误结论。
 
+### 5. 内容哈希缓存（增量 emit，P2-3）
+
+`asn1cxx` 默认开启 `<dir>/.asn1cxx-cache/` 内容哈希缓存：源文件 sha256 + 发射
+参数不变即跳过该单元的 emit + write。命中时 stderr 末尾输出一行 `note`
+（`emit cache: N/M units hit (...)`），不进错误计数。**缓存命中不能绕过产物
+哈希校验** —— 写入磁盘后立刻对每个输出文件做一次 sha256 并写入缓存条目，
+下一次命中时会重新计算并比较，手动改产物后任何命中都自动失效。
+
+门禁纪律：
+- CI 上做金标对验（差分 oracle 向量）必须传 `--no-emit-cache`，确保
+  emit 路径是基线；
+- 跨工程不要共享 `.asn1cxx-cache/`：缓存键含绝对源文件路径，路径变了
+  key 自然 miss，旧条目静默占用空间；
+- 修改 emit 任何源/产物后必须重跑一遍带缓存与 `--no-emit-cache` 的 diff，
+  确认产物字节级一致（P2-2 历史教训：flat 与 split 同一 fixture 跑出的
+  产物必须按 codec diff 出来为空）。
+
 ## 新增编解码家族流程（概要）
 
 完整步骤（运行时库 + CMake、`CodecKind` 位与 CLI 别名、`TlvKind`/命名空间
@@ -168,7 +185,7 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
 1. **一份事实一处权威**：设计 → architecture.md；操作 → usage-guide.md；
    状态 → status.md；历史 → changelog.md；对比 → comparison.md；
    工程纪律 → development.md；README 只做速览与链接；
-2. **同一数字多处出现时全局替换**：测试总数（320）、codec 数（12）、
+2. **同一数字多处出现时全局替换**：测试总数（333）、codec 数（12）、
    fixture 数（7）等出现在 README / architecture / status / changelog /
    comparison 多处，改数后 grep 全套文档统一；
 3. **变更收尾动作**：changelog.md 追加条目（含验证口径），status.md 同步

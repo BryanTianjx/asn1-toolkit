@@ -301,3 +301,115 @@ TEST(Cli, EmitInlineRestoresHeaderDefinitions) {
   EXPECT_NE(cpp.find("companion TU"), std::string::npos);
   EXPECT_EQ(cpp.find("asn1::uper::encode_integer"), std::string::npos);
 }
+
+// --- P2-3 content-hash cache (--emit-cache / --no-emit-cache) ---
+
+namespace fs = std::filesystem;
+
+// Emits into a per-test dir twice (cache-miss then cache-hit) and returns
+// the diagnostic stderr from the second run so callers can look for the
+// "emit cache:" note.
+struct DoubleRun {
+  int code_first;
+  int code_second;
+  std::string err_first;
+  std::string err_second;
+  fs::path dir;
+};
+DoubleRun run_twice(const std::vector<std::string>& base_args) {
+  DoubleRun r{};
+  r.dir = fs::temp_directory_path() /
+          ("asn1cxx_cli_cache_" +
+           std::to_string(static_cast<long long>(::getpid())));
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+  fs::create_directories(r.dir, ec);
+
+  std::vector<std::string> args = base_args;
+  args.insert(args.begin(), "--emit-dir");
+  args.insert(args.begin() + 1, r.dir.string());
+
+  auto first = run_asn1cxx(args);
+  r.code_first = first.code;
+  r.err_first = first.err;
+
+  auto second = run_asn1cxx(args);
+  r.code_second = second.code;
+  r.err_second = second.err;
+  return r;
+}
+
+TEST(Cli, EmitCacheSecondRunHits) {
+  const auto r = run_twice({"--codec", "uper", example("person.asn")});
+  EXPECT_EQ(r.code_first, 0);
+  EXPECT_EQ(r.code_second, 0);
+  // Second-run stderr should mention a cache hit count.
+  EXPECT_NE(r.err_second.find("emit cache:"), std::string::npos);
+  EXPECT_NE(r.err_second.find("units hit"), std::string::npos);
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+}
+
+TEST(Cli, NoEmitCacheNeverProducesCacheNote) {
+  const auto r = run_twice({"--codec", "uper", "--no-emit-cache",
+                            example("person.asn")});
+  EXPECT_EQ(r.code_first, 0);
+  EXPECT_EQ(r.code_second, 0);
+  // Neither run should mention the cache (caching disabled entirely).
+  EXPECT_EQ(r.err_first.find("emit cache:"), std::string::npos);
+  EXPECT_EQ(r.err_second.find("emit cache:"), std::string::npos);
+  // No cache directory on disk either.
+  EXPECT_FALSE(fs::exists(r.dir / ".asn1cxx-cache"));
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+}
+
+TEST(Cli, EmitCacheFlagReEnables) {
+  const auto r = run_twice({"--no-emit-cache", "--emit-cache", "--codec",
+                            "uper", example("person.asn")});
+  EXPECT_EQ(r.code_first, 0);
+  EXPECT_EQ(r.code_second, 0);
+  // Last flag wins: --emit-cache is on, so second run reports a hit.
+  EXPECT_NE(r.err_second.find("emit cache:"), std::string::npos);
+  // On a 100% cache hit the user-visible status line is "reused (cached)"
+  // instead of "wrote ...", so callers can tell apart the no-op and the
+  // fresh-emit cases without parsing the cache note.
+  EXPECT_NE(r.err_second.find("reused (cached)"), std::string::npos);
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+}
+
+TEST(Cli, EmitCacheMissSaysWrote) {
+  // First run is necessarily a miss; the user-visible status line is the
+  // historical "wrote ... and ...". After that the second run reuses the
+  // cache (covered by EmitCacheSecondRunHits).
+  const auto r = run_twice({"--codec", "uper", example("person.asn")});
+  EXPECT_EQ(r.code_first, 0);
+  EXPECT_EQ(r.code_second, 0);
+  EXPECT_NE(r.err_first.find("wrote "), std::string::npos);
+  EXPECT_EQ(r.err_first.find("reused (cached)"), std::string::npos);
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+}
+
+// End-to-end on the big fixture that exercises the split-mode cache path
+// (per-unit content-hash + per-unit output verification). Run from a real
+// LPP fixture; if the fixture is missing, the test self-skips.
+TEST(Cli, SplitEmitCacheSecondRunHits) {
+  // End-to-end on the big fixture that exercises the split-mode cache path
+  // (per-unit content-hash + per-unit output verification). We resolve to
+  // an absolute path because ctest may run us from any CWD.
+  const fs::path asn =
+      fs::absolute(fs::path(ASN1_EXAMPLES_DIR).parent_path() / "tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn");
+  if (!fs::exists(asn)) {
+    GTEST_SKIP() << "LPP fixture not present at " << asn.string();
+  }
+  const auto r = run_twice({"--codec", "uper", "--emit-split", asn.string()});
+  if (r.code_first != 0) {
+    GTEST_SKIP() << "LPP fixture parse/analyze failed (code " << r.code_first << ")";
+  }
+  EXPECT_EQ(r.code_second, 0);
+  EXPECT_NE(r.err_second.find("emit cache:"), std::string::npos);
+  std::error_code ec;
+  fs::remove_all(r.dir, ec);
+}

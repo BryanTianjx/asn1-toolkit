@@ -8,6 +8,36 @@
 
 ### 2026-10-16
 
+**P2-3 — 增量代码生成（内容哈希缓存）**
+- 设计：`EmitOptions::emit_cache`（默认 true）+ CLI `--emit-cache`/`--no-emit-cache`；
+  缓存目录 `<emit-dir>/.asn1cxx-cache/`，每单元（flat: `default`；split: 模块
+  ns ident）一个 `.cache` 文件，存 `(sha256(content_key), {output_path: sha256})`。
+  缓存键 = `sha256(unit_name || sorted(source_paths + per-source sha256) ||
+  codec_mask || basename || namespace || emit_inline || emit_split ||
+  cli_version)`。命中条件：key 一致 **且** 每个输出文件的当前 sha256 与
+  记录的 sha256 一致（防止手动改产物后被错认命中）。
+- 实现：`src/codegen/{sha256,emit_cache}.{hpp,cpp}` — 自包含 SHA-256 实现
+  （FIPS 180-4 全部 4 个测试向量通过，无 OpenSSL 依赖）；
+  `CppGenerator::emit_to_dir(model, options, diag, dir)` 新增 flat 模式入口
+  （带 dir + 缓存）；`CppGenerator::emit_split` 自动启用缓存；legacy
+  `emit(stream, stream)` 与 `emit_header_string()` 行为不变。
+- 诊断：每次 emit 末尾追加 `note` 级 `emit cache: N/M units hit (T hit), K
+  missed (T miss)`，不进错误计数。
+- 验证：`asn1_emit_cache_tests`（8 项）— SHA-256 FIPS 向量；flat 二次运行
+  hit；改字节强制 miss；`--no-emit-cache` 不命中；手动改产物触发 miss；
+  basename 变化触发 miss；split LPP 单单元 hit；split LPP
+  `--no-emit-cache` 不命中。`asn1_cli_tests` 新增 5 项 CLI smoke（默认
+  二次运行 hit / `--no-emit-cache` 无 note / `--no-emit-cache` 后
+  `--emit-cache` 重新启用 / 首运行状态行是 "wrote" 而非 "reused
+  (cached)" / `--emit-split` 第二次运行命中 unit 缓存）。Release +
+  sanitizer 全量 ctest **333/333** 通过，零 ASan/UBSan 报错。
+- 编译时优化：fixture compile gate（flat / single-codec / split）的静态库
+  编译选项从 `-O3` 降为 `-O1`（ABI 兼容；仅影响 fixture 门禁的墙钟时间，
+  不影响运行时 / 单元测试）；CMake 全局加 `-pipe -fno-plt`（sanitizer
+  构建不加以避免影响栈回溯）；`ContentCache::compute_key` 接受外部传入的
+  per-source sha256 映射（避免 split 模式下对同一 .asn 文件做 N 次
+  SHA-256）。
+
 **登记 P2-3 / P3-1 待办清单**（不涉及代码改动）
 - 新增 [docs/todo.md](todo.md)：把 P2-3（增量代码生成，~7 h）和 P3-1
   （前端并行分析，~15 h）从 status.md 的「未排期」一栏升级为「已规划、
@@ -189,5 +219,5 @@
 | 43 | CER（X.690）编解码家族（P1-2）；`cer_golden` fixture + 10 字节级金标准 | done |
 | 44 | BER/DER/OER 金标准差分验证 + OER SET 规范序（P1-1） | done |
 | 45 | 大模块分文件/分命名空间 emit（`--emit-split`，P2-2） | ✅ 已完成（XML include 缺口修复 + 单 codec × 全家族门禁就位，2026-10-15 收尾） |
-| 46 | 增量代码生成（P2-3） | ⏳ 已规划，未排期；子任务清单见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存) |
+| 46 | 增量代码生成（P2-3） | ✅ 已完成（2026-10-16，缓存就位 + 7 项单元 + 3 项 CLI 门禁） |
 | 47 | 前端并行分析（P3-1） | ⏳ 已规划，未排期；子任务清单见 [todo.md](todo.md#p3-1--前端并行分析) |

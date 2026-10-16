@@ -121,6 +121,11 @@ void print_usage(std::ostream& out) {
       << "  --emit-split            Emit one <Module>.hpp/.cpp pair per ASN.1\n"
       << "                         module (types namespaced per module) plus\n"
       << "                         the aggregate <basename>.hpp\n"
+      << "  --emit-cache / --no-emit-cache\n"
+      << "                         Toggle the content-hash cache stored in\n"
+      << "                         <dir>/.asn1cxx-cache/ (default: on; CI\n"
+      << "                         golden diffs typically pass --no-emit-cache\n"
+      << "                         to disable)\n"
       << "\n"
       << "See docs/README.md.\n";
 }
@@ -221,9 +226,28 @@ int dump_ir(const std::vector<std::string>& paths) {
   return EXIT_SUCCESS;
 }
 
+// P2-3: walk the diagnostics for the most recent "emit cache:" note and
+// extract its `<hits>/<total>` ratio. Returns {0,0} when no note exists
+// (e.g. the CLI passed `--no-emit-cache` or no emit ran).
+struct HitMiss { std::size_t hits; std::size_t total; };
+HitMiss latest_cache_stats(const asn1::Diagnostics& diag) {
+  for (auto it = diag.items().rbegin(); it != diag.items().rend(); ++it) {
+    const std::string& msg = it->message;
+    const auto pos = msg.find("emit cache:");
+    if (pos == std::string::npos) continue;
+    // "emit cache: <hits>/<total> units hit (...)"
+    const auto slash = msg.find('/', pos);
+    const auto space = msg.find(' ', slash);
+    if (slash == std::string::npos || space == std::string::npos) return {0, 0};
+    return {static_cast<std::size_t>(std::stoul(msg.substr(pos + 12, slash - pos - 12))),
+            static_cast<std::size_t>(std::stoul(msg.substr(slash + 1, space - slash - 1)))};
+  }
+  return {0, 0};
+}
+
 int emit_code(const std::vector<std::string>& paths, const std::string& dir,
               asn1::codegen::CodecKind codec, const std::string& namespace_name,
-              bool emit_inline, bool emit_split) {
+              bool emit_inline, bool emit_split, bool emit_cache) {
   asn1::Diagnostics diag;
   std::vector<asn1::SourceFile> files;
   asn1::ir::Model model = analyze_files(paths, diag, files);
@@ -239,6 +263,13 @@ int emit_code(const std::vector<std::string>& paths, const std::string& dir,
   opt.namespace_name = namespace_name;
   opt.emit_inline = emit_inline;
   opt.emit_split = emit_split;
+  opt.emit_cache = emit_cache;
+  // Absolute paths to the .asn inputs; the content-hash cache folds these
+  // into the unit key so a source edit naturally invalidates the entry.
+  opt.source_paths.reserve(paths.size());
+  for (const std::string& p : paths) {
+    opt.source_paths.push_back(std::filesystem::absolute(p));
+  }
 
   if (emit_split) {
     asn1::codegen::CppGenerator gen;
@@ -247,29 +278,40 @@ int emit_code(const std::vector<std::string>& paths, const std::string& dir,
       diag.print(std::cerr);
       return EXIT_FAILURE;
     }
-    std::cerr << "asn1cxx: wrote split emit into " << dir
-              << " (<Module>.hpp/.cpp per module + generated.hpp aggregate)\n";
+    diag.print(std::cerr);
+    // Tell apart a 100% cache hit (the aggregate header is always
+    // rewritten because it just `#include`s every unit) from a partial hit
+    // that actually opened some emit unit's streams.
+    const HitMiss hm2 = latest_cache_stats(diag);
+    if (hm2.total > 0 && hm2.hits == hm2.total) {
+      std::cerr << "asn1cxx: reused (cached) split emit into " << dir
+                << " (<Module>.hpp/.cpp per module + generated.hpp aggregate)\n";
+    } else {
+      std::cerr << "asn1cxx: wrote split emit into " << dir
+                << " (<Module>.hpp/.cpp per module + generated.hpp aggregate)\n";
+    }
     return EXIT_SUCCESS;
   }
 
-  const auto header_path = std::filesystem::path(dir) / "generated.hpp";
-  const auto source_path = std::filesystem::path(dir) / "generated.cpp";
-
-  std::ofstream header(header_path);
-  std::ofstream source(source_path);
-  if (!header || !source) {
-    std::cerr << "asn1cxx: failed to open emit outputs in " << dir << '\n';
-    return EXIT_FAILURE;
-  }
-
   asn1::codegen::CppGenerator gen;
-  gen.emit(model, opt, diag, header, &source);
+  gen.emit_to_dir(model, opt, diag, dir);
   if (!diag.ok()) {
     diag.print(std::cerr);
     return EXIT_FAILURE;
   }
-  std::cerr << "asn1cxx: wrote " << header_path.string() << " and " << source_path.string()
-            << '\n';
+  // Emit diagnostics (the cache note lives here) and a per-mode status line.
+  // A 100% cache hit leaves the on-disk files untouched; the user wants to
+  // know whether they got "wrote" or "reused". We tell apart by looking at
+  // the most recent cache note: if every unit hit, nothing was written.
+  diag.print(std::cerr);
+  const HitMiss hm = latest_cache_stats(diag);
+  if (hm.total > 0 && hm.hits == hm.total) {
+    std::cerr << "asn1cxx: reused (cached) " << (std::filesystem::path(dir) / "generated.hpp")
+              << " and " << (std::filesystem::path(dir) / "generated.cpp") << '\n';
+  } else {
+    std::cerr << "asn1cxx: wrote " << (std::filesystem::path(dir) / "generated.hpp") << " and "
+              << (std::filesystem::path(dir) / "generated.cpp") << '\n';
+  }
   return EXIT_SUCCESS;
 }
 
@@ -299,6 +341,10 @@ int main(int argc, char** argv) {
   // --emit-split: per-module <Module>.hpp/.cpp pairs + aggregate header
   // (types namespaced per module; out-of-line regardless of --emit-inline).
   bool emit_split = false;
+  // P2-3: --no-emit-cache disables the content-hash cache; the default
+  // (`emit_cache = true`) skips emit when the unit's source + options are
+  // unchanged since the last successful run.
+  bool emit_cache = true;
   // None until the first --codec flag; falls back to Uper afterwards so an
   // unset --codec keeps the historical default while --codec uper,ber-style
   // combinations accumulate by OR.
@@ -349,6 +395,14 @@ int main(int argc, char** argv) {
     }
     if (arg == "--emit-split") {
       emit_split = true;
+      continue;
+    }
+    if (arg == "--emit-cache") {
+      emit_cache = true;
+      continue;
+    }
+    if (arg == "--no-emit-cache") {
+      emit_cache = false;
       continue;
     }
     if (arg == "--codec") {
@@ -410,7 +464,7 @@ int main(int argc, char** argv) {
       if (codec == asn1::codegen::CodecKind::None) {
         codec = asn1::codegen::CodecKind::Uper;
       }
-      if (emit_code(files, emit_dir, codec, namespace_name, emit_inline, emit_split) != EXIT_SUCCESS) {
+      if (emit_code(files, emit_dir, codec, namespace_name, emit_inline, emit_split, emit_cache) != EXIT_SUCCESS) {
         status = EXIT_FAILURE;
       }
     }

@@ -24,8 +24,11 @@
 ***************************************************************************/
 #include "emit_internal.hpp"
 
+#include <asn1/codegen/sha256.hpp>
+
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace asn1 {
 namespace codegen {
@@ -220,6 +223,39 @@ void Emitter::run(std::ostream& header, std::ostream* source) {
       *source << "}  // namespace " << ns << "\n";
       def_out_ = nullptr;
     }
+  }
+
+void Emitter::run_to_dir(const std::filesystem::path& dir) {
+    cache_reset_stats();
+    std::filesystem::create_directories(dir);
+    const std::filesystem::path hpp_path = dir / (options_.basename + ".hpp");
+    const std::filesystem::path cpp_path = dir / (options_.basename + ".cpp");
+    const std::vector<std::filesystem::path> outputs{hpp_path.filename(),
+                                                     cpp_path.filename()};
+    // Cache check: if the unit is in cache and outputs are byte-identical,
+    // skip emit entirely. Note `expected_outputs` carry paths relative to
+    // `dir` so hash_output_file can resolve them under emit_dir.
+    if (cache_check_unit("default", outputs)) {
+      cache_finalise();
+      return;
+    }
+    {
+      // Bracket the streams so they close (flush + sync) before
+      // cache_record_unit hashes the files on disk — otherwise the
+      // post-write hash is the empty-file hash and the cache is poisoned.
+      std::ofstream header(hpp_path, std::ios::binary | std::ios::trunc);
+      std::ofstream source(cpp_path, std::ios::binary | std::ios::trunc);
+      if (!header || !source) {
+        diag_.error({}, "failed to open emit outputs in " + dir.string());
+        return;
+      }
+      auto t0 = std::chrono::steady_clock::now();
+      run(header, &source);
+      auto t1 = std::chrono::steady_clock::now();
+      cache_miss_wall_ += std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0);
+    }
+    cache_record_unit("default", outputs);
+    cache_finalise();
   }
 
   /**
@@ -1267,6 +1303,7 @@ void Emitter::collect_module_groups() {
    *  Returns     : void
    */
 void Emitter::run_split(const std::filesystem::path& dir) {
+    cache_reset_stats();
     collect_named();
     collect_module_groups();
     const std::string ns = cpp_ident(options_.namespace_name);
@@ -1290,8 +1327,18 @@ void Emitter::run_split(const std::filesystem::path& dir) {
         }
       }
 
+      // P2-3: cache check per unit. The unit name is the file basename
+      // (stable across runs and matches what `unit_files_[u]` already
+      // stores). When the key + every output's on-disk hash match, skip
+      // the entire emit for this unit — the previous files are reused
+      // verbatim and the unit's mtime / filesystem entries stay untouched.
       const std::filesystem::path hpp_path = dir / (file_base + ".hpp");
       const std::filesystem::path cpp_path = dir / (file_base + ".cpp");
+      const std::vector<std::filesystem::path> unit_outputs{hpp_path.filename(),
+                                                            cpp_path.filename()};
+      if (cache_check_unit(file_base, unit_outputs)) {
+        continue;
+      }
       std::ofstream header(hpp_path);
       std::ofstream source(cpp_path);
       if (!header || !source) {
@@ -1408,6 +1455,12 @@ void Emitter::run_split(const std::filesystem::path& dir) {
       header << "}  // namespace " << ns << "\n\n"
              << "#endif  // " << guard << "\n";
       source << "}  // namespace " << ns << "\n";
+      // Flush + sync before hashing the on-disk bytes; an unfilled
+      // std::ofstream buffer reads back as a zero-byte file and poisons
+      // the cache entry (P2-3 first iteration regression).
+      header.flush();
+      source.flush();
+      cache_record_unit(file_base, unit_outputs);
     }
 
     // Aggregate header: one include pulls in every unit.
@@ -1426,6 +1479,7 @@ void Emitter::run_split(const std::filesystem::path& dir) {
       agg << "#include \"" << f << ".hpp\"\n";
     }
     agg << "\n#endif  // " << aguard << "\n";
+    cache_finalise();
   }
 
 void CppGenerator::emit(const ir::Model& model, const EmitOptions& options, Diagnostics& diag,
@@ -1436,8 +1490,20 @@ void CppGenerator::emit(const ir::Model& model, const EmitOptions& options, Diag
 
 void CppGenerator::emit_split(const ir::Model& model, const EmitOptions& options,
                               Diagnostics& diag, const std::filesystem::path& dir) {
-  Emitter emitter(model, options, diag);
+  // Copy options so we can attach the dir without mutating the caller's
+  // struct (caller might pass a temporary, const-ref, or reused instance).
+  EmitOptions opts = options;
+  opts.emit_dir = dir;
+  Emitter emitter(model, opts, diag);
   emitter.run_split(dir);
+}
+
+void CppGenerator::emit_to_dir(const ir::Model& model, const EmitOptions& options,
+                                Diagnostics& diag, const std::filesystem::path& dir) {
+  EmitOptions opts = options;
+  opts.emit_dir = dir;
+  Emitter emitter(model, opts, diag);
+  emitter.run_to_dir(dir);
 }
 
 std::string CppGenerator::emit_header_string(const ir::Model& model, const EmitOptions& options,
@@ -1445,6 +1511,188 @@ std::string CppGenerator::emit_header_string(const ir::Model& model, const EmitO
   std::ostringstream os;
   emit(model, options, diag, os, nullptr);
   return os.str();
+}
+
+// --- P2-3 content-hash cache helpers ---
+
+namespace {
+
+// Format a wall-time nanoseconds count as "X.XXs" (seconds, 2 decimals).
+std::string format_seconds(std::chrono::nanoseconds ns) {
+  const double seconds = static_cast<double>(ns.count()) / 1e9;
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.2fs", seconds);
+  return buf;
+}
+
+}  // namespace
+
+std::vector<std::string> Emitter::cache_extra_inputs() const {
+  if (cache_extras_valid_) {
+    return cache_extras_cached_;
+  }
+  std::vector<std::string>& out = cache_extras_cached_;
+  // Codec bitmask + basename + namespace_name + emit_inline + emit_split
+  // distinguish every distinct emit. cli_version is a forward-compat hook:
+  // if the cache format changes, bump this and old entries naturally miss.
+  out.push_back("codec=" + std::to_string(static_cast<unsigned>(options_.codec)));
+  out.push_back("basename=" + options_.basename);
+  out.push_back("namespace=" + options_.namespace_name);
+  out.push_back("emit_inline=" + std::to_string(options_.emit_inline ? 1 : 0));
+  out.push_back("emit_split=" + std::to_string(options_.emit_split ? 1 : 0));
+  out.push_back("cli_version=asn1cxx-0.1.0");
+  cache_extras_valid_ = true;
+  return out;
+}
+
+std::string Emitter::cache_source_fingerprint() const {
+  if (cache_source_fp_valid_) {
+    return cache_source_fp_cached_;
+  }
+  // Force the per-source sha256 map to populate alongside this call so we
+  // share one I/O pass over the source files between fingerprinting and
+  // the subsequent per-unit compute_key() calls.
+  (void)cache_source_hashes();
+  if (options_.source_paths.empty()) {
+    cache_source_fp_cached_ = "src:empty";
+  } else {
+    std::vector<std::filesystem::path> sorted(options_.source_paths.begin(),
+                                              options_.source_paths.end());
+    std::sort(sorted.begin(), sorted.end(),
+              [](const std::filesystem::path& a, const std::filesystem::path& b) {
+                return a.string() < b.string();
+              });
+    std::string joined;
+    joined.reserve(64 * sorted.size());
+    for (const auto& p : sorted) {
+      const std::string& h = cache_source_hashes_cached_.at(p.string());
+      joined.append(p.string());
+      joined.push_back('=');
+      joined.append(h.empty() ? std::string("unreadable") : h);
+      joined.push_back('|');
+    }
+    cache_source_fp_cached_ = "srcs=" + sha256_hex(joined);
+  }
+  cache_source_fp_valid_ = true;
+  return cache_source_fp_cached_;
+}
+
+const std::unordered_map<std::string, std::string>& Emitter::cache_source_hashes() const {
+  if (cache_source_hashes_valid_) {
+    return cache_source_hashes_cached_;
+  }
+  for (const auto& p : options_.source_paths) {
+    cache_source_hashes_cached_[p.string()] = sha256_file_hex(p);
+  }
+  cache_source_hashes_valid_ = true;
+  return cache_source_hashes_cached_;
+}
+
+ContentCache* Emitter::cache_init() {
+  if (cache_) {
+    return cache_.get();
+  }
+  if (!options_.emit_cache) {
+    return nullptr;
+  }
+  if (options_.emit_dir.empty()) {
+    return nullptr;
+  }
+  cache_ = std::make_unique<ContentCache>(options_.emit_dir);
+  return cache_.get();
+}
+
+void Emitter::cache_reset_stats() {
+  cache_units_total_ = 0;
+  cache_units_hit_ = 0;
+  cache_miss_wall_ = std::chrono::nanoseconds{0};
+  cache_extras_valid_ = false;
+  cache_extras_cached_.clear();
+  cache_source_fp_valid_ = false;
+  cache_source_fp_cached_.clear();
+  cache_source_hashes_valid_ = false;
+  cache_source_hashes_cached_.clear();
+}
+
+bool Emitter::cache_check_unit(const std::string& unit_name,
+                               const std::vector<std::filesystem::path>& expected_outputs) {
+  ContentCache* cache = cache_init();
+  if (!cache) {
+    return false;
+  }
+  cache_units_total_++;
+  const CacheEntry* entry = cache->lookup(unit_name);
+  if (!entry) {
+    return false;
+  }
+  // Re-derive the key from the current sources + emit options and compare.
+  // `cache_source_hashes()` is memoised so the same .asn file is read+SHA-256'd
+  // at most once across every per-unit call in this run.
+  const std::vector<std::string> extras_buf = cache_extra_inputs();
+  std::vector<std::string> extras = extras_buf;
+  extras.push_back(cache_source_fingerprint());
+  const std::string key =
+      cache->compute_key(unit_name, options_.source_paths, extras, cache_source_hashes());
+  if (entry->key != key) {
+    return false;
+  }
+  // Verify every expected output is on disk and its hash matches what we
+  // recorded last time. A manual edit or partial write changes the hash
+  // and we miss (forcing a clean re-emit).
+  if (entry->outputs.size() != expected_outputs.size()) {
+    return false;
+  }
+  for (const auto& rel : expected_outputs) {
+    const std::string rel_str = rel.string();
+    auto it = entry->outputs.find(rel_str);
+    if (it == entry->outputs.end()) {
+      return false;
+    }
+    const std::string actual = ContentCache::hash_output_file(options_.emit_dir, rel);
+    if (actual.empty() || actual != it->second) {
+      return false;
+    }
+  }
+  cache_units_hit_++;
+  return true;
+}
+
+void Emitter::cache_record_unit(const std::string& unit_name,
+                                const std::vector<std::filesystem::path>& outputs) {
+  ContentCache* cache = cache_init();
+  if (!cache) {
+    return;
+  }
+  const std::vector<std::string> extras_buf = cache_extra_inputs();
+  std::vector<std::string> extras = extras_buf;
+  extras.push_back(cache_source_fingerprint());
+  const std::string key =
+      cache->compute_key(unit_name, options_.source_paths, extras, cache_source_hashes());
+  CacheEntry e;
+  e.key = key;
+  for (const auto& rel : outputs) {
+    const std::string rel_str = rel.string();
+    const std::string h = ContentCache::hash_output_file(options_.emit_dir, rel);
+    if (!h.empty()) {
+      e.outputs[rel_str] = h;
+    }
+  }
+  cache->store(unit_name, std::move(e));
+}
+
+void Emitter::cache_finalise() {
+  if (!cache_) {
+    return;
+  }
+  cache_->flush();
+  // Diagnostic note: counts + wall-time split. Severity::Note so it does
+  // not affect Diagnostics::ok() (caller still succeeds on a 100% hit).
+  std::ostringstream msg;
+  msg << "emit cache: " << cache_units_hit_ << "/" << cache_units_total_ << " units hit ("
+      << format_seconds(std::chrono::nanoseconds{0}) << "), "
+      << (cache_units_total_ - cache_units_hit_) << " missed ("
+      << format_seconds(cache_miss_wall_) << ")";
+  diag_.note({}, msg.str());
 }
 
 }  // namespace codegen

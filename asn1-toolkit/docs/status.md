@@ -6,23 +6,39 @@
 
 ## 当前阶段
 
-**Phase 45 — 大模块分文件/分命名空间 emit（`--emit-split`），单 codec × 全家族门禁已就位。**
+**Phase 46 — 增量代码生成（`--emit-cache` / `--no-emit-cache`），内容哈希缓存就位。**
 
-- `--emit-split` 已落地：按 ASN.1 模块边界生成 `<Module>.hpp/.cpp` 对 + 聚合
-  头；跨模块引用限定；互相递归模块（SCC）合并进同一 emit 单元；LPP/S1AP/
-  RRC 逐单元编译门通过；flat 产物与拆分前逐字节一致；
-- 单 codec × 全家族编译门禁已补齐：LPP × 12 codec 各跑一次独立 emit + 编译
-  （`asn1_lpp_single_{uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer}_compile`）；
-  此前 xer/exer/cxer 单选触发的 `make_error is not a member of asn1`
-  缺口（XML 分支未 include `<asn1/runtime/byte_io.hpp>`）已修复，全 36
-  case 零错误。
+- `--emit-cache`（默认）/ `--no-emit-cache` 已落地：缓存目录
+  `<emit-dir>/.asn1cxx-cache/`，每单元（flat: `default`；split: 模块 ns
+  ident）一个 `.cache` 文件，存 `(sha256(content_key), {output_path: sha256})`；
+  命中条件 = key 一致 **且** 每个输出文件的当前 sha256 与记录的 sha256
+  一致（防止手动改产物后被错认命中）。
+- 实现：`src/codegen/{sha256,emit_cache}.{hpp,cpp}` — 自包含 SHA-256
+  （FIPS 180-4 全部 4 个测试向量通过，无 OpenSSL 依赖）；
+  `CppGenerator::emit_to_dir(model, options, diag, dir)` 新增 flat 模式入口
+  （带 dir + 缓存）；`CppGenerator::emit_split` 自动启用缓存；legacy
+  `emit(stream, stream)` 与 `emit_header_string()` 行为不变。
+- 诊断：每次 emit 末尾追加 `note` 级 `emit cache: N/M units hit (T hit),
+  K missed (T miss)`，不进错误计数。
+- 验证：`asn1_emit_cache_tests`（8 项）— SHA-256 FIPS 向量；flat 二次
+  运行 hit；改字节强制 miss；`--no-emit-cache` 不命中；手动改产物触发
+  miss；basename 变化触发 miss；split LPP 单单元 hit；split LPP
+  `--no-emit-cache` 不命中。CLI smoke 4 项（默认二次运行 hit /
+  `--no-emit-cache` 无 note / flag 顺序最后胜出 / 首运行状态行是 "wrote"
+  而非 "reused (cached)"）。
+- 算法 / 编译时优化：`ContentCache::compute_key` 接受外部传入的 per-source
+  sha256 映射，Emitter 一次性算好后通过 `cache_source_hashes()` 复用，
+  split 模式 N 个单元只对每个 .asn 源读 + SHA-256 一次；fixture compile
+  gate（flat / single-codec / split）从 `-O3` 降为 `-O1`，仍 ABI 兼容，
+  大 fixture 编译时间显著下降；CMake 全局加 `-pipe -fno-plt`（sanitizer
+  构建不加以避免影响 sanitizer 栈回溯）。
 
 ## 构建与测试状态
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **320/320 通过**，0 失败 |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **320/320 通过**，0 失败，零 ASan/UBSan 报错（含 out-of-line 定义 TU 全量编译） |
+| Release 构建 ctest | **333/333 通过**，0 失败（含 P2-3 内容哈希缓存 8 项单元测试 + 5 项 CLI 冒烟） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **333/333 通过**，0 失败，零 ASan/UBSan 报错 |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态

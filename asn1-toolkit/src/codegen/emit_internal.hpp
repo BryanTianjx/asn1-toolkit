@@ -28,8 +28,11 @@
 #include <asn1/support/diagnostics.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <sstream>
@@ -39,6 +42,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include "emit_cache.hpp"
 
 namespace asn1 {
 namespace codegen {
@@ -136,6 +141,18 @@ class Emitter {
      *  Returns     : void
      */
     void run(std::ostream& header, std::ostream* source);
+
+    /**
+     *  Function    : run_to_dir
+     *  Description : Flat emit into a directory, consulting the content-hash
+     *                cache when `options.emit_cache` is true. Writes
+     *                `<dir>/<basename>.hpp` (and `.cpp` when out-of-line);
+     *                a cache hit (key + output hashes match) skips the emit
+     *                and reuses the previously written files verbatim.
+     *  Parameters  : dir — const std::filesystem::path& dir
+     *  Returns     : void
+     */
+    void run_to_dir(const std::filesystem::path& dir);
 
     /**
      *  Function    : begin_codec_fn
@@ -256,7 +273,55 @@ class Emitter {
    *  Parameters  : out — std::ostream& out; id — ir::TypeId id
    *  Returns     : void
    */
-    void emit_type_decl(std::ostream& out, ir::TypeId id);
+  void emit_type_decl(std::ostream& out, ir::TypeId id);
+
+  // --- P2-3 content-hash cache helpers ---
+
+  /// Build the deterministic key inputs (codec mask + basename + namespace
+  /// + emit_split + embed flags + cli_version) so the same cache directory
+  /// can hold entries for distinct emits without colliding.
+  std::vector<std::string> cache_extra_inputs() const;
+
+  /// Compute the sha256 of `options_.source_paths` content (sorted) and
+  /// return it as a single extra-input string. Empty source_paths ->
+  /// "src:empty" so cache entries are still well-formed.
+  std::string cache_source_fingerprint() const;
+
+  /// Precomputed sha256 of every `options_.source_paths` entry, keyed by
+  /// absolute path string. Computed once per run (memoised in
+  /// `cache_source_hashes_cached_`) and passed to
+  /// `ContentCache::compute_key` so each .asn file is read+SHA-256'd at
+  /// most once across the whole run — split mode calls this N times.
+  const std::unordered_map<std::string, std::string>& cache_source_hashes() const;
+
+  /// Lazily construct the in-memory `cache_` if `options_.emit_cache` is
+  /// true and the caller provided `options_.emit_dir`. Returns nullptr
+  /// when caching is disabled or no dir is available.
+  ContentCache* cache_init();
+
+  /// Try to reuse a cached unit. `unit_name` is the stable identifier
+  /// ("default" for flat, the module ns ident for split). `expected_outputs`
+  /// lists the on-disk files (relative paths under options_.emit_dir)
+  /// that the previous successful emit produced. Returns true on a
+  /// verifiable cache hit (key matches AND every expected file's
+  /// current hash equals the recorded one). False on miss or any
+  /// unverifiable state (we re-emit then).
+  bool cache_check_unit(const std::string& unit_name,
+                        const std::vector<std::filesystem::path>& expected_outputs);
+
+  /// Hash each on-disk file under options_.emit_dir (relative paths),
+  /// build a CacheEntry, and stash it in `cache_`. Called immediately
+  /// after a successful emit.
+  void cache_record_unit(const std::string& unit_name,
+                         const std::vector<std::filesystem::path>& outputs);
+
+  /// Persist all staged cache entries to disk (no-op if caching disabled).
+  /// Also emits the diagnostic note describing hit/miss counts.
+  void cache_finalise();
+
+  /// Reset per-run counters (called at the top of run/run_split so
+  /// multiple invocations on the same Emitter are independent).
+  void cache_reset_stats();
 
     /**
      *  Function    : choice_all_fields
@@ -751,6 +816,33 @@ class Emitter {
   std::vector<std::string> unit_files_;
   /// Split mode: external module dependencies per unit (parallel).
   std::vector<std::vector<std::string>> unit_deps_;
+  /// P2-3 content-hash cache. Lazily constructed in run()/run_split() when
+  /// `options_.emit_cache` is true; null when caching is disabled.
+  std::unique_ptr<ContentCache> cache_;
+  /// P2-3: emit-time statistics for the diagnostic note ("N/M units hit
+  /// in X.Xs, K missed in Y.Ys"). Counters are bumped in run/run_split.
+  std::size_t cache_units_total_ = 0;
+  std::size_t cache_units_hit_ = 0;
+  /// P2-3: cumulative wall time of emit work that actually ran (i.e. the
+  /// sum of per-unit `run`/`run_split` miss durations). Hit units cost ~0.
+  std::chrono::nanoseconds cache_miss_wall_{0};
+  /// P2-3: memoised `cache_extra_inputs()` (the deterministic emit-option
+  /// suffix of every cache key) and `cache_source_fingerprint()` (sorted
+  /// source paths + per-source sha256). Both are pure functions of
+  /// `options_` / `options_.source_paths`, so caching the result across
+  /// every per-unit `cache_check_unit` / `cache_record_unit` call saves
+  /// O(units * sources) file reads on miss — meaningful for the LPP/S1AP
+  /// fixtures that the build gates compile. `mutable` so the const
+  /// `cache_extra_inputs()` / `cache_source_fingerprint()` accessors can
+  /// fill these on first call without changing the Emitter's API.
+  mutable std::vector<std::string> cache_extras_cached_;
+  mutable bool cache_extras_valid_ = false;
+  mutable std::string cache_source_fp_cached_;
+  mutable bool cache_source_fp_valid_ = false;
+  /// Per-source sha256 cache (path string -> sha256(content)). Filled
+  /// lazily by `cache_source_hashes()`; consumed by `compute_key`.
+  mutable std::unordered_map<std::string, std::string> cache_source_hashes_cached_;
+  mutable bool cache_source_hashes_valid_ = false;
 };
 
 }  // namespace codegen
