@@ -180,6 +180,64 @@ class Emitter {
      */
     void emit_header(std::ostream& out);
 
+    /**
+     *  Function    : emit_includes
+     *  Description : Emits the runtime includes selected by options_.codec
+     *                (shared by the flat header and every split module
+     *                header).
+     *  Parameters  : out — std::ostream& out
+     *  Returns     : void
+     */
+    void emit_includes(std::ostream& out);
+
+    /**
+     *  Function    : emit_types_and_codecs
+     *  Description : Emits forward declarations, type declarations and codec
+     *                functions for the given named types.
+     *  Parameters  : out — std::ostream& out; ids — const std::vector<ir::TypeId>& ids
+     *  Returns     : void
+     */
+    void emit_types_and_codecs(std::ostream& out, const std::vector<ir::TypeId>& ids);
+
+    /**
+     *  Function    : emit_type_codecs
+     *  Description : Emits the codec functions of one named type (the
+     *                per-type slice of emit_types_and_codecs).
+     *  Parameters  : out — std::ostream& out; id — ir::TypeId id
+     *  Returns     : void
+     */
+    void emit_type_codecs(std::ostream& out, ir::TypeId id);
+
+    /**
+     *  Function    : named_ref
+     *  Description : In split mode, the cross-module qualified name
+     *                (`<Module>::Name`) of a named type that lives outside
+     *                the module currently being emitted; the plain C++ name
+     *                otherwise (same module, or flat single-namespace mode).
+     *  Parameters  : t — const ir::Type& t
+     *  Returns     : std::string
+     */
+    std::string named_ref(const ir::Type& t) const;
+
+    /**
+     *  Function    : collect_module_groups
+     *  Description : Split mode: groups the named types by ASN.1 module,
+     *                assigns a unique C++ namespace ident per module, and
+     *                computes the cross-module include dependencies.
+     *  Parameters  : none
+     *  Returns     : void
+     */
+    void collect_module_groups();
+
+    /**
+     *  Function    : run_split
+     *  Description : Split mode driver: writes one `<Module>.hpp/.cpp` pair
+     *                per module plus the aggregate header into `dir`.
+     *  Parameters  : dir — const std::filesystem::path& dir
+     *  Returns     : void
+     */
+    void run_split(const std::filesystem::path& dir);
+
     static std::string table_entry_alt_name(const ir::TableConstraintEntry& entry, std::size_t idx);
 
     static std::vector<std::string> compute_table_entry_alt_names(
@@ -672,6 +730,27 @@ class Emitter {
   /// cannot shadow an enclosing temp of the same name (the enclosing temp is
   /// the assignment target `expr`, so a shadow breaks every nested optional).
   std::size_t temp_counter_ = 0;
+  /// Split mode: the ASN.1 module whose types are currently being emitted
+  /// (empty in flat single-namespace mode). Cross-module references are
+  /// qualified against it.
+  std::string current_module_;
+  /// Split mode: ASN.1 module name -> unique C++ namespace ident.
+  std::unordered_map<std::string, std::string> module_ns_;
+  /// Split mode: ASN.1 module name -> its named type ids in emit order.
+  std::unordered_map<std::string, std::vector<ir::TypeId>> module_types_;
+  /// Split mode: ASN.1 module name -> names of modules its headers must
+  /// include (types referenced across module boundaries).
+  std::unordered_map<std::string, std::vector<std::string>> module_deps_;
+  /// Split mode: emit units in dependency-first order. A unit is one ASN.1
+  /// module, or a merged strongly-connected group of modules: mutually
+  /// recursive modules cannot live in separate headers (a by-value
+  /// cross-module member needs the other type complete), so they share one
+  /// header/.cpp pair while every type keeps its own module namespace.
+  std::vector<std::vector<std::string>> unit_modules_;
+  /// Split mode: file basename per unit (parallel to unit_modules_).
+  std::vector<std::string> unit_files_;
+  /// Split mode: external module dependencies per unit (parallel).
+  std::vector<std::vector<std::string>> unit_deps_;
 };
 
 }  // namespace codegen

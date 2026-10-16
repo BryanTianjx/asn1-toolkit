@@ -7,6 +7,24 @@
 
 ### 2026-10-15
 
+**P2-2 收尾 — XML 家族单 codec include 缺口修复 + 单 codec × 全家族门禁**
+- 根因：`emit_includes` 的 XML 分支（xer/exer/cxer）未 include
+  `<asn1/runtime/byte_io.hpp>`，而 XML 解码器在 CHOICE/ENUMERATED 等
+  失败路径会调用 `asn1::make_error`（定义于 `byte_io.hpp`）。全 12-codec
+  组合门禁中 PER/OER/TLV 分支都会捎带这个头，所以组合门禁一直绿；任何
+  单 codec 选 XML 都必暴露。
+- 修复：`emit_includes` XML 分支显式补 `#include <asn1/runtime/byte_io.hpp>`
+  （一行 + 注释解释）。
+- 回归门禁：`tests/CMakeLists.txt` 新增 LPP × 12 codec 各跑一次独立 emit +
+  完整编译（`asn1_lpp_single_{uper,aper,per,ber,der,cer,oer,coer,jer,
+  xer,exer,cxer}_compile`），覆盖单 codec 场景的 include 自包含性，
+  防组合门禁再掩盖同类缺口。
+- 验证：手工 3 fixture × 12 codec = 36 case 全部零错误（含 flat 单 codec
+  跑 `--codec xer`/`exer`/`cxer`）；新门禁 12 个静态库编译全过；Release
+  320/320 零回归。
+- 状态变更：`status.md` 中"XML 家族单 codec include 缺口"由已知失败
+  改为 ✅ 已修复；Phase 45 由"部分完成"改为"单 codec × 全家族门禁已就位"。
+
 **P2-1 — bit_io 批量位写路径优化**（Phase 里程碑见下表）
 - `put_bits(value,nbits)` 改先填半字节再整字节批量写；新增
   `BitWriter::put_bitmap(Span<byte-per-bit>)` 按 64 位打包一次写出；
@@ -40,7 +58,8 @@
 - 验证：Release + sanitizer 316/316；五 fixture × 12 codec `-fsyntax-only`
   零错误。
 
-**P2-2 — 大模块分文件/分命名空间 emit（`--emit-split`），部分完成**（当前阶段）
+**P2-2 — 大模块分文件/分命名空间 emit（`--emit-split`）**（2026-10-15 主体，
+10-15 收尾：XML include 缺口 + 单 codec × 全家族门禁，详见上条目）
 - 按 ASN.1 模块边界生成 `<Module>.hpp/.cpp` 对 + 聚合 `generated.hpp`；头内
   类型命名空间与模块名对齐，跨模块引用按 `<Module>::Name` 限定
   （`Emitter::named_ref`，flat 产物逐字节不变）；互相递归模块（依赖图 SCC）
@@ -157,4 +176,4 @@
 | 42 | 全 codec 产物硬化 —— 12 codec 编译门禁（P0-3）；`tlv_oer_golden` fixture + 8 往返测试 | done |
 | 43 | CER（X.690）编解码家族（P1-2）；`cer_golden` fixture + 10 字节级金标准 | done |
 | 44 | BER/DER/OER 金标准差分验证 + OER SET 规范序（P1-1） | done |
-| 45 | 大模块分文件/分命名空间 emit（`--emit-split`，P2-2） | ⚠️ 部分完成（XML 家族单 codec include 缺口已知，见 status.md） |
+| 45 | 大模块分文件/分命名空间 emit（`--emit-split`，P2-2） | ✅ 已完成（XML include 缺口修复 + 单 codec × 全家族门禁就位，2026-10-15 收尾） |

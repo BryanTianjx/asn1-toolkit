@@ -899,7 +899,7 @@ void Emitter::emit_decode_body(std::ostream& out, const ir::Type& t, const std::
       case ir::TypeKind::Enumerated: {
         const auto vals = enum_root_sorted_values(t.enumerated);
         const auto ext_vals = enum_extension_values(t.enumerated);
-        const std::string ty = is_named(t) ? named_type_cpp(t) : "std::int64_t";
+        const std::string ty = is_named(t) ? named_ref(t) : "std::int64_t";
         out << ind << "{\n"
             << ind << "  auto idx = " << C << "::decode_enumerated(r, "
             << t.enumerated.root.size() << ", "
@@ -985,7 +985,7 @@ void Emitter::emit_decode_body(std::ostream& out, const ir::Type& t, const std::
           const ir::Field& f = t.choice.alternatives[i];
           const ir::Type& ft = resolve(model_, f.type);
           out << ind << "      case " << i << ": {\n"
-              << ind << "        " << named_type_cpp(t) << "::" << cpp_ident(f.name)
+              << ind << "        " << named_ref(t) << "::" << cpp_ident(f.name)
               << "_ alt{};\n";
           emit_field_decode(out, ft, "alt.value", aper, ind + "        ");
           out << ind << "        " << expr << ".alt = std::move(alt);\n"
@@ -1008,7 +1008,7 @@ void Emitter::emit_decode_body(std::ostream& out, const ir::Type& t, const std::
           const ir::Field& f = t.choice.extensions[i];
           const ir::Type& ft = resolve(model_, f.type);
           out << ind << "        case " << i << ": {\n"
-              << ind << "          " << named_type_cpp(t) << "::" << cpp_ident(f.name)
+              << ind << "          " << named_ref(t) << "::" << cpp_ident(f.name)
               << "_ alt{};\n";
           emit_field_decode(out, ft, "alt.value", aper, ind + "          ");
           out << ind << "          " << expr << ".alt = std::move(alt);\n"

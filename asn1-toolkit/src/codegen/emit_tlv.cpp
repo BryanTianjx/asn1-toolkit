@@ -881,7 +881,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
       }
       case ir::TypeKind::Choice: {
         const auto all = choice_all_fields(rt.choice);
-        const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
+        const std::string choice_ty = is_named(rt) ? named_ref(rt) : std::string{};
         out << ind << "{\n";
         if (cer) {
           // CER: peek the tag without consuming, then decode the matched

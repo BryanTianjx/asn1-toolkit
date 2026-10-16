@@ -323,6 +323,74 @@ asn1_fixture_compile_gate(rrc_full uper per rrc_8_6_0/EUTRA-RRC-Definitions.asn)
 asn1_fixture_compile_gate(lpp_full uper per lpp_14_3_0/LPP-PDU-Definitions.asn)
 asn1_fixture_compile_gate(s1ap_full aper per s1ap_14_4_0/s1ap_14_4_0.asn)
 
+# Single-codec × whole-family compile gate (LPP, every codec in isolation).
+# The all-12-codec combined emit gate above hides per-family include gaps
+# (each family drags its runtime headers, transitively satisfying the
+# next family's free functions): the previous P2-2 residual was exactly this
+# shape — XML chose alone produced "make_error is not a member of asn1"
+# because xer/codec.hpp does not pull in byte_io.hpp. Exercising every
+# single codec independently catches single-family regressions the combined
+# gate cannot. LPP is a representative multi-kilobyte ASN.1 fixture with
+# CHOICE/SEQUENCE/enumerated/SIZE constraints, table-constraint-typed open
+# types and IE references — enough to detect missing includes, link
+# errors, or namespace regressions in any single family.
+set(_all_codec_pairs
+    "uper per" "aper per" "per per"
+    "ber ber" "der per" "cer ber"
+    "oer oer" "coer oer"
+    "jer jer" "xer xer" "exer xer" "cxer xer")
+foreach(_pair IN LISTS _all_codec_pairs)
+  string(REPLACE " " ";" _pair_split "${_pair}")
+  list(GET _pair_split 0 _codec)
+  list(GET _pair_split 1 _lib)
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_lpp_single_${_codec}")
+  add_custom_command(
+    OUTPUT "${_dir}/generated.hpp" "${_dir}/generated.cpp"
+    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${_codec} --namespace asn1_lpp_single_${_codec}
+            "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn"
+    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn"
+    COMMENT "Generating single-${_codec} C++ for telecom LPP (single-codec gate)"
+    VERBATIM
+  )
+  add_library(asn1_lpp_single_${_codec}_compile STATIC "${_dir}/generated.cpp")
+  target_include_directories(asn1_lpp_single_${_codec}_compile PRIVATE "${_dir}")
+  target_link_libraries(asn1_lpp_single_${_codec}_compile PRIVATE asn1::${_lib})
+endforeach()
+
+# Split emit compile gates (--emit-split): per-module <Module>.hpp/.cpp
+# pairs + aggregate header must compile. S1AP exercises cross-module
+# references AND a merged mutually-recursive module unit (IEs + Containers +
+# PDU-Contents share one TU); LPP covers the single-module unit path.
+macro(asn1_fixture_split_gate name codec lib fixture)
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_split_${name}")
+  set(_outs "${_dir}/generated.hpp")
+  set(_srcs "")
+  foreach(_stem ${ARGN})
+    list(APPEND _outs "${_dir}/${_stem}.hpp" "${_dir}/${_stem}.cpp")
+    list(APPEND _srcs "${_dir}/${_stem}.cpp")
+  endforeach()
+  add_custom_command(
+    OUTPUT ${_outs}
+    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${codec} --namespace asn1_split_${name}
+            --emit-split "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    COMMENT "Generating split ${codec} C++ for telecom ${fixture} (split compile gate)"
+    VERBATIM
+  )
+  # One library per fixture holding every emitted unit .cpp (each unit is an
+  # independent TU: it includes only its own header + dependency headers).
+  add_library(asn1_split_${name} STATIC ${_srcs})
+  target_include_directories(asn1_split_${name} PRIVATE "${_dir}")
+  target_link_libraries(asn1_split_${name} PRIVATE asn1::${lib})
+endmacro()
+
+# LPP: single module -> one unit file. S1AP: three units (CommonDataTypes,
+# PDU-Descriptions, and the merged IEs/Containers/PDU-Contents cycle).
+asn1_fixture_split_gate(lpp_split uper per lpp_14_3_0/LPP-PDU-Definitions.asn
+  LPP_PDU_Definitions)
+asn1_fixture_split_gate(s1ap_split uper per s1ap_14_4_0/s1ap_14_4_0.asn
+  S1AP_CommonDataTypes S1AP_PDU_Descriptions S1AP_IEs)
+
 # asn1cxx CLI end-to-end tests (spawn the built asn1cxx binary).
 add_executable(asn1_cli_tests
   codegen/cli_test.cpp

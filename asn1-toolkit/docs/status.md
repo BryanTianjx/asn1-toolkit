@@ -5,13 +5,16 @@
 
 ## 当前阶段
 
-**Phase 45 — 大模块分文件/分命名空间 emit（`--emit-split`），部分完成。**
+**Phase 45 — 大模块分文件/分命名空间 emit（`--emit-split`），单 codec × 全家族门禁已就位。**
 
 - `--emit-split` 已落地：按 ASN.1 模块边界生成 `<Module>.hpp/.cpp` 对 + 聚合
   头；跨模块引用限定；互相递归模块（SCC）合并进同一 emit 单元；LPP/S1AP/
   RRC 逐单元编译门通过；flat 产物与拆分前逐字节一致；
-- 遗留一个已知失败（按当前优先级暂停修复）：`--codec xer` / `exer` / `cxer`
-  单独选择时 emit 产物编译失败（见"剩余工作"）。
+- 单 codec × 全家族编译门禁已补齐：LPP × 12 codec 各跑一次独立 emit + 编译
+  （`asn1_lpp_single_{uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer}_compile`）；
+  此前 xer/exer/cxer 单选触发的 `make_error is not a member of asn1`
+  缺口（XML 分支未 include `<asn1/runtime/byte_io.hpp>`）已修复，全 36
+  case 零错误。
 
 ## 构建与测试状态
 
@@ -25,9 +28,10 @@
 
 | 门禁 | 结果 |
 |------|------|
-| 全 codec 产物门禁 | 7 fixture（tlv_oer_golden / tlv_golden / cer_golden / RRC 8.6.0 / LPP 14.3.0 / S1AP 14.4.0 / rrc_slice）× 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误。**注意**：该门禁为 12 codec 组合单次发射，会掩盖单 codec 选择下的 include 缺口（见剩余工作第 1 项） |
+| 全 codec 产物门禁 | 7 fixture（tlv_oer_golden / tlv_golden / cer_golden / RRC 8.6.0 / LPP 14.3.0 / S1AP 14.4.0 / rrc_slice）× 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误 |
+| 单 codec × 全家族门禁（新增） | LPP × 12 codec 各跑一次独立 emit + 完整编译（`asn1_lpp_single_{uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer}_compile`）：每族单独选择时产物的 runtime header 依赖自包含。该门禁捕获单 codec 场景的 include 缺口（组合门禁会把其他分支的 header 链入而掩盖） |
 | 分文件 emit 门禁（UPER） | `asn1_split_lpp_split`（LPP 单模块路径）、`asn1_split_s1ap_split`（S1AP 三 emit 单元，含合并的 IEs+Containers+PDU-Contents 递归环）静态库编译通过 |
-| 分文件 emit 手工矩阵 | LPP uper/aper/coer/ber/der/oer/jer 零错误；S1AP uper/ber/der/oer/jer 零错误；RRC uper 零错误；xer/exer/cxer 单 codec 失败（既有 include 缺口，flat 同样失败）；flat 产物与改动前逐字节一致 |
+| 分文件 emit 手工矩阵 | LPP uper/aper/coer/ber/der/oer/jer 零错误；S1AP uper/ber/der/oer/jer 零错误；RRC uper 零错误；xer/exer/cxer 单 codec 零错误（XML 缺口已修复，见上）；flat 产物与改动前逐字节一致 |
 | 三大 3GPP fixture emit 产物编译 | RRC/LPP/S1AP 全量 emit 产物作为 CMake 静态库编译通过（编译的是真实定义，非 stub） |
 
 ## 金标准差分验证状态
@@ -43,7 +47,7 @@
 
 | 项目 | 阻塞原因 / 说明 | 建议后续 |
 |------|----------------|----------|
-| XML 家族单 codec include 缺口（flat + split 均中招，P2-2 暴露） | `--codec xer`/`exer`/`cxer` 单独选择时 emit 产物编译失败（LPP 182 错 / S1AP 1609 错，`make_error` is not a member of `asn1`）：`emit_includes` 的 XML 分支未 include `<asn1/runtime/byte_io.hpp>`（`make_error` 所在头）；全 12-codec 组合门禁因其他分支带入该头而掩盖。属既有发射器缺陷（flat 单跑 `--codec xer` 即复现，非 split 引入）；split 逐单元独立编译使其在单 codec 场景必现 | XML include 分支补 `#include <asn1/runtime/byte_io.hpp>`（一行）；补单 codec × 全家族发射矩阵的回归（每族单独选择跑一次 -fsyntax-only），防再次被组合门禁掩盖 |
+| XML 家族单 codec include 缺口（flat + split 均中招，P2-2 暴露） | ✅ 已修复：XML 分支 `emit_includes` 增补 `#include <asn1/runtime/byte_io.hpp>`（`make_error` 所在头）；补单 codec × 全家族发射矩阵的回归（每族单独选择跑一次编译门禁，LPP × 12 codec 全部零错误） | — |
 | 完整模块编译 CI / 3GPP 编解码对等验证 | emit + compile 已过；BER/DER/OER 单构造金标准向量已对验（tlv_golden）；剩余为 3GPP 协议消息级完整向量（逐消息 PDU）的对验 | 扩展金标准向量覆盖面；逐步引入协议级消息向量 |
 | 许可证文件 | README 标注 TBD（开放源码，发布时添加）；源码头已标注 PROCODEC 版权 2026–2031 | 发布前补 LICENSE |
 | PER 位级正确性外部对验（协议级） | `per_golden.asn` 综合向量（含扩展 addition/bitmap/fragmentation/约束原语）已与 asn1c oracle 字节级对验通过；剩余为 3GPP 协议消息级完整向量的对验 | 扩展 per_golden 向量覆盖面；逐步引入协议级消息向量 |

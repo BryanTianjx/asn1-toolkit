@@ -772,7 +772,7 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
       case ir::TypeKind::Choice: {
         const auto all = choice_all_fields(rt.choice);
         const std::size_t root_n = rt.choice.alternatives.size();
-        const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
+        const std::string choice_ty = is_named(rt) ? named_ref(rt) : std::string{};
         out << ind << "{\n";
         out << ind << "  auto tag = " << oer_ns() << "::decode_choice_tag(r);\n";
         out << ind << "  if (!tag) return tag.error();\n";

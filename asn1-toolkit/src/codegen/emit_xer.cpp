@@ -656,7 +656,7 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  auto tmp = asn1::exer::decode_enumerated_number(" << el_expr << ");\n";
           out << ind << "  if (!tmp) return tmp.error();\n";
           out << ind << "  " << expr << " = static_cast<"
-              << (is_named(rt) ? named_type_cpp(rt) : "std::int64_t") << ">(tmp.value());\n";
+              << (is_named(rt) ? named_ref(rt) : "std::int64_t") << ">(tmp.value());\n";
         } else {
           if (exer_mode && rt.exer.text) {
             out << ind << "  auto tmp = asn1::exer::decode_enumerated_text(" << el_expr << ");\n";
@@ -667,7 +667,7 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  bool xer_enum_ok = false;\n";
           auto emit_match = [&](const ir::NamedNumber& nn) {
             out << ind << "  if (!xer_enum_ok && tmp.value() == \"" << nn.name << "\") { "
-                << expr << " = static_cast<" << (is_named(rt) ? named_type_cpp(rt) : "std::int64_t")
+                << expr << " = static_cast<" << (is_named(rt) ? named_ref(rt) : "std::int64_t")
                 << ">(" << (nn.value.as_i64 ? *nn.value.as_i64 : 0)
                 << "); xer_enum_ok = true; }\n";
           };
@@ -818,7 +818,7 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
         out << ind << "  const auto& xer_alt = " << el_expr << ".children[0];\n";
         // A named CHOICE nests its alternative structs; qualify the name so
         // nested choices (Nested_rec_q::m_) resolve from a free function.
-        const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
+        const std::string choice_ty = is_named(rt) ? named_ref(rt) : std::string{};
         for (const ir::Field* fp : choice_all_fields(rt.choice)) {
           const ir::Field& f = *fp;
           const ir::Type& ft = resolve(model_, f.type);

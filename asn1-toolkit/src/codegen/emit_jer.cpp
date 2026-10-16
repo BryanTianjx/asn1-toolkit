@@ -659,7 +659,7 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
           out << ind << "  const asn1::jer::Value& jer_payload = *jer_ch.value().second;\n";
           // A named CHOICE nests its alternative structs; qualify the name so
           // nested choices (Nested_rec_q::m_) resolve from a free function.
-          const std::string choice_ty = is_named(rt) ? named_type_cpp(rt) : std::string{};
+          const std::string choice_ty = is_named(rt) ? named_ref(rt) : std::string{};
           for (const ir::Field* fp : choice_all_fields(rt.choice)) {
             const ir::Field& f = *fp;
             const ir::Type& ft = resolve(model_, f.type);
