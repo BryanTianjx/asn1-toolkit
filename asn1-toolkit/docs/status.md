@@ -111,7 +111,6 @@
 | 许可证文件 | README 标注 TBD（开放源码，发布时添加）；源码头已标注 PROCODEC 版权 2026–2031 | 发布前补 LICENSE |
 | 增量代码生成（P2-3，已落地；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | ✅ P2-3 自身验证：`--emit-cache`/`--no-emit-cache` + `.asn1cxx-cache/` 内容哈希 + split 模式按单元粒度 + CLI `--help` 文档化 + 8 项单元测试 + 5 项 CLI 冒烟；P2-3 落地当时 ctest **333/333**（Release + sanitizer）。P3-1 累计 → **344/344** | — |
 | 前端并行分析（P3-1，已落地；详见 [todo.md](todo.md#p3-1--前端并行分析)） | ✅ 已完成 `declare_pass` + `resolve_pass` 并行；`lower_pass` 保留串行是有意决定（per-module arena + `Referenced.resolved` 重映射 deferred，理由见 todo.md P3-1 「实际落地」段）；`asn1cxx --parallel <N>` + `Analyzer::analyze(modules, N)` + `Diagnostics::merge` + `SymbolTable::merge`；CLI/单元/diagnostics 字节级一致性 + Release/sanitizer 344/344 | — |
-| C 语言代码生成器（P2-4，部分落地；详见 [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c)） | 🟡 sub-task 1（`include/asn1/c_runtime/*` 头骨架 + `-fsyntax-only` 门禁）+ sub-task 2（`src/c_runtime/*.c` 纯 C11 实现 + `asn1::c_runtime` 静态库 + 链接+运行 `Asn1CRuntimeSmoke` 门禁）已落地：所有头函数均有体实现并按 canonical 字节形式验证（BitWriter/Reader、BigInteger、BER TLV tag+length、PER 约束 INTEGER / BIT STRING / OCTET STRING、JER/XER writer+reader）。sub-task 3+（`src/codegen/emit_c/*` + CLI `--lang c` + 全 fixture 编译门禁 + P1-3 oracle 复用）未排期；目标字节输出与 `--lang cpp` 逐字节一致（复用 P1-3 oracle）；估时 ~43 h / 5-6 工作日，Phase 49 | — |
 
 ## 已知限制
 
