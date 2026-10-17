@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(asn1-toolkit
   VERSION 0.1.0
   DESCRIPTION "ASN.1 compiler and codec runtime"
-  LANGUAGES CXX
+  LANGUAGES C CXX
 )
 
 set(CMAKE_CXX_STANDARD 17)
