@@ -255,3 +255,4 @@
 | 46 | 增量代码生成（P2-3） | ✅ 已完成（2026-10-16，缓存就位 + 7 项单元 + 3 项 CLI 门禁） |
 | 47 | 前端并行分析（P3-1） | ✅ 已完成（2026-10-17，`--parallel <N>` + declare/resolve 并行 + 11 项门禁；`lower_pass` 串行 deferred；commit `5856565`） |
 | 48 | 3GPP 协议消息级金标准向量对验（P1-3） | ⏳ 已规划，未排期；子任务清单见 [todo.md](todo.md#p1-3--3gpp-协议消息级金标准向量对验) |
+| 49 | C 语言代码生成器（P2-4） | ⏳ 已规划，未排期；`asn1cxx --lang c` + `asn1/c_runtime/*` 平行 runtime + `src/codegen/emit_c/*`；与 `--lang cpp` 复用 P1-3 oracle 字节一致；估时 ~43 h / 5-6 工作日；子任务清单见 [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c) |
