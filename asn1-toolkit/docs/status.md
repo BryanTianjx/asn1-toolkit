@@ -102,16 +102,6 @@
 | CER（`cer_golden`，10 用例） | 无外部 oracle；X.690 条文推导 + DER 值等价交叉验证 | 通过 |
 | 运行时优化回归 | 三套金标准向量零回归（bit_io 批量位写前后输出逐比特一致） | 通过 |
 
-## 剩余工作
-
-| 项目 | 阻塞原因 / 说明 | 建议后续 |
-|------|----------------|----------|
-| XML 家族单 codec include 缺口（flat + split 均中招，P2-2 暴露） | ✅ 已修复：XML 分支 `emit_includes` 增补 `#include <asn1/runtime/byte_io.hpp>`（`make_error` 所在头）；补单 codec × 全家族发射矩阵的回归（每族单独选择跑一次编译门禁，LPP × 12 codec 全部零错误） | — |
-| 完整模块编译 CI / 3GPP 编解码对等验证 + PER 位级正确性外部对验（协议级） | ✅ 已规划 P1-3（详见 [todo.md](todo.md#p1-3--3gpp-协议消息级金标准向量对验)）：抓取 / 生成 3GPP 真实协议消息字节 → 与 asn1-toolkit 编码字节逐位对验；3 fixture（LPP / S1AP / RRC）× 5 codec（uper,aper,ber,der,oer）= ~45 条 oracle | — |
-| 许可证文件 | README 标注 TBD（开放源码，发布时添加）；源码头已标注 PROCODEC 版权 2026–2031 | 发布前补 LICENSE |
-| 增量代码生成（P2-3，已落地；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | ✅ P2-3 自身验证：`--emit-cache`/`--no-emit-cache` + `.asn1cxx-cache/` 内容哈希 + split 模式按单元粒度 + CLI `--help` 文档化 + 8 项单元测试 + 5 项 CLI 冒烟；P2-3 落地当时 ctest **333/333**（Release + sanitizer）。P3-1 累计 → **344/344** | — |
-| 前端并行分析（P3-1，已落地；详见 [todo.md](todo.md#p3-1--前端并行分析)） | ✅ 已完成 `declare_pass` + `resolve_pass` 并行；`lower_pass` 保留串行是有意决定（per-module arena + `Referenced.resolved` 重映射 deferred，理由见 todo.md P3-1 「实际落地」段）；`asn1cxx --parallel <N>` + `Analyzer::analyze(modules, N)` + `Diagnostics::merge` + `SymbolTable::merge`；CLI/单元/diagnostics 字节级一致性 + Release/sanitizer 344/344 | — |
-
 ## 已知限制
 
 1. **emit 成功 ≠ 可编译 / 正确** —— 全部门禁定义见
@@ -119,7 +109,8 @@
 2. **组合门禁掩盖单 codec 缺口** —— 全 codec 位掩码单次发射会把其他分支的
    include 带进产物；单 codec 场景必须单独验证（XML 家族缺口即由此暴露）；
 3. **电信 fixture 测试不等于 3GPP 完整对等** —— 当前覆盖 parse + analyze +
-   emit 编译门禁 + 字节级金标准差分，协议级逐消息 PDU 对验在路线图（见上表）；
+   emit 编译门禁 + 字节级金标准差分，协议级逐消息 PDU 对验见
+   [todo.md](todo.md#p1-3--3gpp-协议消息级金标准向量对验)；
 4. **CER 无外部 oracle** —— asn1c v0.9.29 与 asn1tools 均无 CER 实现，
    金标准由 X.690 条文推导 + DER 值等价交叉验证；
 5. **许可证未定** —— 源码头已标 PROCODEC 版权，正式许可证文件发布时补齐。
