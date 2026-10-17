@@ -37,24 +37,16 @@ target_link_libraries(asn1_parallel_analyzer_tests PRIVATE asn1::frontend
                       asn1::semantic GTest::gtest_main)
 gtest_discover_tests(asn1_parallel_analyzer_tests)
 
-# P2-4 (--lang c) sub-task 1: C runtime header skeleton sanity check.
-# Sub-task 1 only validates that the headers parse cleanly under
-# `gcc -std=c11 -fsyntax-only -Wall -Wextra`. No runtime body is needed
-# (sub-task 2 fills them in), so the gate is a build-time compile-only
-# check rather than a runnable executable.
-add_custom_command(
-  OUTPUT asn1_c_header_syntax_test.stamp
-  COMMAND ${CMAKE_C_COMPILER} -std=c11 -Wall -Wextra -fsyntax-only
-          -I${CMAKE_CURRENT_SOURCE_DIR}/../include
-          -c ${CMAKE_CURRENT_SOURCE_DIR}/c_lang/header_syntax_test.c
-          -o ${CMAKE_CURRENT_BINARY_DIR}/header_syntax_test.c.o
-  COMMENT "P2-4 sub-task 1: syntax-checking c_lang/header_syntax_test.c"
-  VERBATIM)
-add_custom_target(asn1_c_header_syntax_test DEPENDS
-                   asn1_c_header_syntax_test.stamp)
-add_test(NAME Asn1CHeaderSyntax COMMAND ${CMAKE_COMMAND} -E echo
-         "P2-4 sub-task 1 c runtime headers pass fsyntax-only gate"
-         "(see asn1_c_header_syntax_test target build output)")
+# P2-4 (--lang c) sub-task 2: link-and-run gate for the parallel C runtime.
+# Sub-task 1 only verified that every header parses cleanly under
+# `gcc -std=c11 -fsyntax-only`; sub-task 2 fills the bodies in
+# src/c_runtime/*.c, so this gate now links the runtime lib and runs
+# a smoke driver that calls every declared function with a sample input.
+# A failure here means a C-runtime body returns the wrong status or
+# produces bytes that don't match the canonical wire form.
+add_executable(asn1_c_runtime_smoke c_lang/c_runtime_smoke.c)
+target_link_libraries(asn1_c_runtime_smoke PRIVATE asn1::c_runtime)
+add_test(NAME Asn1CRuntimeSmoke COMMAND asn1_c_runtime_smoke)
 
 add_executable(asn1_constraints_tests constraints/constraints_test.cpp)
 target_link_libraries(asn1_constraints_tests PRIVATE asn1::frontend asn1::constraints asn1::semantic GTest::gtest_main)

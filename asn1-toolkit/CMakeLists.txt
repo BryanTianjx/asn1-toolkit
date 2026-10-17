@@ -252,6 +252,42 @@ target_link_libraries(asn1_codegen PUBLIC asn1::ir asn1::support)
 add_executable(asn1cxx tools/asn1cxx/main.cpp)
 target_link_libraries(asn1cxx PRIVATE asn1::frontend asn1::semantic asn1::codegen)
 
+# P2-4 sub-task 2: parallel pure-C runtime. The C++ asn1cxx emits code that
+# links against this library for `--lang c`. Header surface was locked in
+# sub-task 1 (include/asn1/c_runtime/*); this static lib fills the bodies
+# so the headers compile, link, and run. Sub-task 3+ wires the emitter.
+add_library(asn1_c_runtime STATIC
+  src/c_runtime/c_common.c
+  src/c_runtime/bigint.c
+  src/c_runtime/bit_io.c
+  src/c_runtime/bit_string.c
+  src/c_runtime/byte_io.c
+  src/c_runtime/ber_tlv.c
+  src/c_runtime/per.c
+  src/c_runtime/jer.c
+  src/c_runtime/xer.c
+)
+add_library(asn1::c_runtime ALIAS asn1_c_runtime)
+target_include_directories(asn1_c_runtime PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+# `extern "C"` headers + the C runtime uses C-only stdlib symbols (no
+# C++ runtime, no std::optional/span). Keep the C++ parts of the build
+# free of the C runtime's per-file compile flags.
+set_source_files_properties(
+  src/c_runtime/c_common.c
+  src/c_runtime/bigint.c
+  src/c_runtime/bit_io.c
+  src/c_runtime/bit_string.c
+  src/c_runtime/byte_io.c
+  src/c_runtime/ber_tlv.c
+  src/c_runtime/per.c
+  src/c_runtime/jer.c
+  src/c_runtime/xer.c
+  PROPERTIES COMPILE_OPTIONS "-std=c11;-Wall;-Wextra;-Wno-unused-parameter"
+)
+
 if(ASN1_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
