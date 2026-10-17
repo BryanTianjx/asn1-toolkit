@@ -117,4 +117,30 @@ void Diagnostics::print(std::ostream& out) const {
   }
 }
 
+/**
+ *  Function    : merge
+ *  Description : Move-append another Diagnostics. Items end up in merge-call
+ *                order so the caller controls the final byte-level sequence
+ *                (used by the parallel analyzer orchestrator in P3-1).
+ *  Parameters  : other — Diagnostics&& other
+ *  Returns     : void Diagnostics::
+ */
+void Diagnostics::merge(Diagnostics&& other) noexcept {
+  // error_count_ aggregates: parallel workers never share this Diagnostics so
+  // the counter is always the local worker's count. Add it so the merged
+  // total equals the sum of workers' counts (matches serial aggregation).
+  error_count_ += other.error_count_;
+  if (!other.items_.empty()) {
+    if (items_.empty()) {
+      items_ = std::move(other.items_);
+    } else {
+      items_.reserve(items_.size() + other.items_.size());
+      for (auto& d : other.items_) {
+        items_.push_back(std::move(d));
+      }
+      other.items_.clear();
+    }
+  }
+}
+
 }  // namespace asn1

@@ -107,6 +107,21 @@ class SymbolTable {
    */
   const std::unordered_map<Key, Symbol>& entries() const noexcept { return entries_; }
 
+  /// Merge another SymbolTable's entries into self. Used by the parallel
+  /// `declare_pass` (P3-1): each worker accumulates per-module declarations
+  /// into a private SymbolTable, then the orchestrator merges them in module
+  /// index order. The merged table is byte-equivalent to the serial result
+  /// because `SymbolTable::declare` already detects duplicates; serial and
+  /// parallel paths therefore produce the same final entries plus the same
+  /// duplicate-symbol error sequence.
+  /**
+   *  Function    : merge
+   *  Description : Performs merge (declaration).
+   *  Parameters  : other — SymbolTable&& other
+   *  Returns     : void
+   */
+  void merge(SymbolTable&& other);
+
  private:
   std::unordered_map<Key, Symbol> entries_;
 };

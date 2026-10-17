@@ -126,6 +126,9 @@ void print_usage(std::ostream& out) {
       << "                         <dir>/.asn1cxx-cache/ (default: on; CI\n"
       << "                         golden diffs typically pass --no-emit-cache\n"
       << "                         to disable)\n"
+      << "  --parallel <N>          Run declare + resolve passes in parallel\n"
+      << "                         with N worker threads (0 = serial baseline,\n"
+      << "                         default: 0). lower + tag remain serial.\n"
       << "\n"
       << "See docs/README.md.\n";
 }
@@ -191,7 +194,7 @@ int dump_ast(const std::string& path) {
 }
 
 asn1::ir::Model analyze_files(const std::vector<std::string>& paths, asn1::Diagnostics& diag,
-                              std::vector<asn1::SourceFile>& files) {
+                              std::vector<asn1::SourceFile>& files, int parallelism) {
   std::vector<std::unique_ptr<asn1::ast::Module>> modules;
   files.reserve(paths.size());
   for (const std::string& path : paths) {
@@ -204,7 +207,7 @@ asn1::ir::Model analyze_files(const std::vector<std::string>& paths, asn1::Diagn
     }
   }
   asn1::Analyzer analyzer(diag);
-  return analyzer.analyze(std::move(modules));
+  return analyzer.analyze(std::move(modules), parallelism);
 }
 
 /**
@@ -213,10 +216,10 @@ asn1::ir::Model analyze_files(const std::vector<std::string>& paths, asn1::Diagn
  *  Parameters  : paths — const std::vector<std::string>& paths
  *  Returns     : int
  */
-int dump_ir(const std::vector<std::string>& paths) {
+int dump_ir(const std::vector<std::string>& paths, int parallelism) {
   asn1::Diagnostics diag;
   std::vector<asn1::SourceFile> files;
-  asn1::ir::Model model = analyze_files(paths, diag, files);
+  asn1::ir::Model model = analyze_files(paths, diag, files, parallelism);
   std::cout << "; IR\n";
   asn1::ir::print(std::cout, model);
   if (!diag.ok()) {
@@ -247,10 +250,10 @@ HitMiss latest_cache_stats(const asn1::Diagnostics& diag) {
 
 int emit_code(const std::vector<std::string>& paths, const std::string& dir,
               asn1::codegen::CodecKind codec, const std::string& namespace_name,
-              bool emit_inline, bool emit_split, bool emit_cache) {
+              bool emit_inline, bool emit_split, bool emit_cache, int parallelism) {
   asn1::Diagnostics diag;
   std::vector<asn1::SourceFile> files;
-  asn1::ir::Model model = analyze_files(paths, diag, files);
+  asn1::ir::Model model = analyze_files(paths, diag, files, parallelism);
   if (!diag.ok()) {
     diag.print(std::cerr);
     return EXIT_FAILURE;
@@ -345,6 +348,9 @@ int main(int argc, char** argv) {
   // (`emit_cache = true`) skips emit when the unit's source + options are
   // unchanged since the last successful run.
   bool emit_cache = true;
+  // P3-1: parallel frontend analysis (declare + resolve passes). 0 keeps the
+  // original serial baseline (default — preserves byte-identical diagnostics).
+  int parallelism = 0;
   // None until the first --codec flag; falls back to Uper afterwards so an
   // unset --codec keeps the historical default while --codec uper,ber-style
   // combinations accumulate by OR.
@@ -405,6 +411,25 @@ int main(int argc, char** argv) {
       emit_cache = false;
       continue;
     }
+    if (arg == "--parallel") {
+      if (i + 1 >= argc) {
+        std::cerr << "asn1cxx: --parallel requires a worker count (0 = serial)\n";
+        return EXIT_FAILURE;
+      }
+      const std::string v = argv[++i];
+      try {
+        const long n = std::stol(v);
+        if (n < 0 || n > 1024) {
+          std::cerr << "asn1cxx: --parallel must be 0..1024\n";
+          return EXIT_FAILURE;
+        }
+        parallelism = static_cast<int>(n);
+      } catch (const std::exception&) {
+        std::cerr << "asn1cxx: --parallel requires an integer (got '" << v << "')\n";
+        return EXIT_FAILURE;
+      }
+      continue;
+    }
     if (arg == "--codec") {
       if (i + 1 >= argc) {
         std::cerr << "asn1cxx: --codec requires a comma-separated list of "
@@ -455,7 +480,7 @@ int main(int argc, char** argv) {
   int status = EXIT_SUCCESS;
   try {
     if (dump_ir_flag) {
-      if (dump_ir(files) != EXIT_SUCCESS) {
+      if (dump_ir(files, parallelism) != EXIT_SUCCESS) {
         status = EXIT_FAILURE;
       }
     }
@@ -464,7 +489,7 @@ int main(int argc, char** argv) {
       if (codec == asn1::codegen::CodecKind::None) {
         codec = asn1::codegen::CodecKind::Uper;
       }
-      if (emit_code(files, emit_dir, codec, namespace_name, emit_inline, emit_split, emit_cache) != EXIT_SUCCESS) {
+      if (emit_code(files, emit_dir, codec, namespace_name, emit_inline, emit_split, emit_cache, parallelism) != EXIT_SUCCESS) {
         status = EXIT_FAILURE;
       }
     }

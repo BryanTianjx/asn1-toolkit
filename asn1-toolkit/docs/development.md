@@ -185,7 +185,7 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
 1. **一份事实一处权威**：设计 → architecture.md；操作 → usage-guide.md；
    状态 → status.md；历史 → changelog.md；对比 → comparison.md；
    工程纪律 → development.md；README 只做速览与链接；
-2. **同一数字多处出现时全局替换**：测试总数（333）、codec 数（12）、
+2. **同一数字多处出现时全局替换**：测试总数（344）、codec 数（12）、
    fixture 数（7）等出现在 README / architecture / status / changelog /
    comparison 多处，改数后 grep 全套文档统一；
 3. **变更收尾动作**：changelog.md 追加条目（含验证口径），status.md 同步

@@ -6,6 +6,39 @@
 
 ## 近期变更详录
 
+### 2026-10-17
+
+**P3-1 — 前端并行分析（`--parallel <N>`，declare + resolve 并行，diagnostics 字节级可重现）**
+- 设计：`Analyzer::analyze(modules, parallelism = 0)` 新增 parallelism
+  参数；`0`（默认）= 串行 baseline（保持现状，CI 金标对验强制），`>0`
+  = worker 数。`declare_pass` 每模块独立声明符号 + 局部 `SymbolTable`，
+  pass 结束后按 module index 串行 merge；`resolve_pass` 每模块持完整
+  符号表只读视图 + 局部 `Diagnostics`，worker 间不共享跨模块
+  diagnostics；`tag_pass` 仍串行。
+- `lower_pass` **保持串行**（**关键变更**，偏离原 todo）：`LowerCtx`
+  共享 `model_.arena`，跨模块 `Referenced.resolved` 链接在 pass 期间
+  跨模块完成；把 arena 拆 worker + 串行重映射需要重建跨模块链接图，
+  作为后续工作 deferred。`lower_pass(int)` 形参已就位，扩展点保留。
+- API 扩展：`Diagnostics::merge(Diagnostics&&)`（caller 决定追加顺序，
+  items 按 merge-call 序排列，与串行 baseline 字节级一致） +
+  `SymbolTable::merge(SymbolTable&&)`（按 module key 合入；duplicate
+  检测由 declare 自身保证）。`Analyzer::analyze` 新增 `parallelism`
+  形参（默认 0 = 串行；现有调用零变更）。
+- CLI：`asn1cxx --parallel <N>`（N ∈ 0..1024；0 = 串行 = 默认；>0 启用
+  worker 线程池），`--help` 文档化。
+- 验证：`asn1_parallel_analyzer_tests`（10 项）— Diagnostics::merge 字节
+  级序列 + error_count 聚合 + 空合并；SymbolTable::merge 合入 +
+  duplicate 检测；5 个 fixture 模块（tiny single-module / multi-module
+  import / undefined type / unknown field / duplicate symbol）在
+  `--parallel 0` 与 `--parallel 16` 下 diagnostics **逐字节相同** +
+  error_count 一致。`asn1_cli_tests` 新增
+  `Cli.ParallelModeProducesByteIdenticalOutput`：LPP 14.3.0 fixture 上
+  `--parallel 0` 与 `--parallel 16` 生成的 `generated.hpp/.cpp` 在
+  namespace 替换后**逐字节相同**。手工验证 RRC 8.6.0（78 模块）：serial
+  vs `--parallel 16` 生成 `generated.hpp` SHA-256 一致
+  （`af86e15d...`）。Release + sanitizer 全量 ctest **344/344** 通过，
+  零 ASan/UBSan 报错。
+
 ### 2026-10-16
 
 **P2-3 — 增量代码生成（内容哈希缓存）**

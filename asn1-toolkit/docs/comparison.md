@@ -138,7 +138,7 @@ COER=OER+规范化策略（不复制算法）。
 - **asn1c**：自带测试套件（zip 内含 1017 文件，含 test 用例）。
 - **asn1tools**：pytest 全套（test_ber/der/gser/jer/oer/per/uper/xer +
   codecs 一致性 + C 生成测试，20+ 文件）。
-- **asn1-toolkit**：GoogleTest + CTest，当前 **333 项测试**；Release +
+- **asn1-toolkit**：GoogleTest + CTest，当前 **344 项测试**；Release +
   sanitizer（ASan/UBSan）双构建门禁；三套字节级金标准差分向量 —— PER/APER
   以 asn1c 为外部 oracle（54 向量）、BER/DER/OER 以 asn1tools + asn1c 为
   oracle（16 用例 × 3 codec）、CER 由 X.690 条文推导 + DER 值等价交叉验证

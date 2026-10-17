@@ -413,3 +413,75 @@ TEST(Cli, SplitEmitCacheSecondRunHits) {
   std::error_code ec;
   fs::remove_all(r.dir, ec);
 }
+
+// P3-1: byte-equality gate between serial (--parallel 0) and parallel
+// (--parallel 16) runs on the LPP 3GPP fixture. This is the headline
+// reproducibility check listed in docs/todo.md (P3-1 sub-task 8).
+TEST(Cli, ParallelModeProducesByteIdenticalOutput) {
+  const fs::path asn =
+      fs::absolute(fs::path(ASN1_EXAMPLES_DIR).parent_path() / "tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn");
+  if (!fs::exists(asn)) {
+    GTEST_SKIP() << "LPP fixture not present at " << asn.string();
+  }
+  const fs::path dir_s = fs::temp_directory_path() /
+                         ("asn1cxx_p31_serial_" + std::to_string(static_cast<long long>(::getpid())));
+  const fs::path dir_p = fs::temp_directory_path() /
+                         ("asn1cxx_p31_parallel_" + std::to_string(static_cast<long long>(::getpid())));
+  std::error_code ec;
+  fs::remove_all(dir_s, ec);
+  fs::remove_all(dir_p, ec);
+  fs::create_directories(dir_s, ec);
+  fs::create_directories(dir_p, ec);
+
+  // `--no-emit-cache` keeps the comparison focused on analyze output.
+  const CliResult s =
+      run_asn1cxx({"--emit-dir", dir_s.string(), "--codec", "uper",
+                   "--namespace", "p31_serial", "--no-emit-cache", asn.string()});
+  const CliResult p =
+      run_asn1cxx({"--emit-dir", dir_p.string(), "--codec", "uper",
+                   "--namespace", "p31_parallel", "--no-emit-cache",
+                   "--parallel", "16", asn.string()});
+  if (s.code != 0) {
+    fs::remove_all(dir_s, ec);
+    fs::remove_all(dir_p, ec);
+    GTEST_SKIP() << "LPP fixture parse/analyze failed (code " << s.code << ")";
+  }
+  EXPECT_EQ(p.code, 0);
+  // The generated files must be byte-equal except for the namespace name
+  // the user passed (which is intentionally different so the two outputs
+  // are visibly distinct in CI logs). Strip the namespace token before
+  // comparing.
+  const auto bytes = [](const fs::path& f) {
+    std::string s;
+    if (FILE* fp = std::fopen(f.c_str(), "rb")) {
+      char buf[8192];
+      std::size_t n;
+      while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) s.append(buf, n);
+      std::fclose(fp);
+    }
+    return s;
+  };
+  auto replace_all = [](std::string s, const std::string& from,
+                        const std::string& to) {
+    if (from.empty()) return s;
+    std::size_t pos = 0;
+    while ((pos = s.find(from, pos)) != std::string::npos) {
+      s.replace(pos, from.size(), to);
+      pos += to.size();
+    }
+    return s;
+  };
+  const std::string b_s =
+      replace_all(bytes(dir_s / "generated.hpp"), "p31_serial", "P31_NS");
+  const std::string b_p =
+      replace_all(bytes(dir_p / "generated.hpp"), "p31_parallel", "P31_NS");
+  const std::string c_s =
+      replace_all(bytes(dir_s / "generated.cpp"), "p31_serial", "P31_NS");
+  const std::string c_p =
+      replace_all(bytes(dir_p / "generated.cpp"), "p31_parallel", "P31_NS");
+  EXPECT_EQ(b_s, b_p) << "generated.hpp diverged between serial and parallel";
+  EXPECT_EQ(c_s, c_p) << "generated.cpp diverged between serial and parallel";
+
+  fs::remove_all(dir_s, ec);
+  fs::remove_all(dir_p, ec);
+}

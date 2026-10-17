@@ -117,22 +117,62 @@ message + 同样的顺序）。
   `--parallel <N>` 标志，默认 0（保持现状可重现）。
 - **可重现性兜底**：保留串行路径；CI 上金标对验强制 `--parallel 0`。
 
+### 实际落地（2026-10-17）
+
+✅ `declare_pass` + `resolve_pass` **已并行**（`--parallel N`，N > 0 时
+worker 线程池按模块分片）。`Diagnostics::merge` + `SymbolTable::merge`
+按 module index 串行合并，diagnostics 字节级与 `--parallel 0` 一致。
+
+❌ **`lower_pass` 保持串行**（**关键变更**，偏离原 todo 设计）：
+- 现状：`LowerCtx` 共享 `model_.arena`，跨模块 `Referenced.resolved`
+  通过 `model_.arena.get(...)` 在 pass 期间跨模块链接；declare_pass 之后
+  即开始把跨模块类型加进共享 arena。`named_ids` 是 per-worker 私有 map，
+  但底层 `TypeId` 全部指向同一个 arena。
+- 把 arena 拆成 per-worker arena + pass 后串行合并，需要重建跨模块
+  `Referenced.resolved` 链接（每个 worker 算出的 id 在合并后失效），
+  且 `re_resolve_all_object_class_fields` 的 `model_` 整体遍历假设
+  一个连续 arena，重建需要先合并才能再跑。
+- 当前 lower 在 78 模块 RRC 8.6.0 fixture 上约 ~10 s（per todo 估时），
+  占比 ~30% 的 analyze 时间；declare/resolve 并行化已经吃掉主要的
+  Amdahl 收益（声明 + 引用检查的 O(M·A·fields) 部分），lower 串行
+  不会成为新的瓶颈。**
+- 后续 Phase 解：保留接口扩展点 `lower_pass(int)` 已接受 parallelism
+  参数；实现 per-module arena + 重映射 deferred（独立工作项，可与
+  ```parse_modules()` 流水线化合并设计）。
+
+❌ **`tag_pass` 保持串行**（与原 todo 一致，标注原因）。
+
 ### 子任务
 
 | # | 内容 | 估时 | 验证 |
 |---|------|------|------|
-| 1 | 在 `Diagnostics` 加 `merge(Diagnostics&& other, std::size_t module_base_index)`：按 index 重排追加。**重要**：合并顺序由 caller 决定；先实现串行版本做对照 | 1 h | `asn1_diagnostics_tests`：merge 后 items 顺序与预期一致 |
-| 2 | `SymbolTable` 加按 module 分片支持：`declare(module_id, names)`、`merge(SymbolTable&& other)`。保留单线程兼容路径 | 2 h | `asn1_semantic_tests` 既有用例全过；分片 + 合并后符号查询与串行等价 |
-| 3 | `Analyzer::declare_pass` 改为 `std::for_each(std::execution::par_unseq, modules, ...)`：每个 worker 处理一个 module；结束后串行 merge | 1 h | RRC/LPP/S1AP 三 fixture 跑 declare_pass 时间（单核 100% → 8 多核期望 ~12.5% wall time，amdal bound）；sanitizer 0 错 |
-| 4 | `Analyzer::resolve_pass` 改为 per-module worker + 重试 sweep。worker 持完整符号表只读；residual 未解析项在 sweep 阶段按模块序解析 | 3 h | RRC/LPP/S1AP resolve 时间记录；诊断输出与 `--parallel 0` 字节级一致（用 diff） |
-| 5 | `Analyzer::lower_pass` 改为 per-module worker + arena merge。lowered type arena per-worker，pass 结束按 module index 串行拷贝到顶层 arena | 3 h | 现有 `asn1_semantic_tests` 全过；RRC 8.6.0 lower 时间记录；产物（prer 对 8 fixture × 12 codec）与 `--parallel 0` 字节级一致 |
-| 6 | `Analyzer::tag_pass` 保留串行（标注原因） | 0 h | — |
-| 7 | `asn1cxx --parallel <N>` CLI；`Diagnostics::merge` + 顶层 merge orchestrator；`Analyzer::analyze` parallel 参数 | 1 h | CLI 测试：`--parallel 0` / `--parallel 4` / `--parallel 16` 三种 |
-| 8 | 可重现性门禁：`tests/CMakeLists.txt` 新增「parallel vs serial equivalence」门禁：LPP + S1AP + RRC 跑两遍（`--parallel 0` 与 `--parallel 16`），产物 `diff` 必须空 | 2 h | ctest 新增 3 项；CI 必跑 |
-| 9 | sanitizer build + Release build 都过；ctest 320/320 + 新门禁 3 项 | 1 h | — |
-| 10 | 文档：`status.md` 性能数字；`changelog.md` P3-1 条目；`architecture.md` 标「并行分析」段落（依赖图、Diagnostics 合并协议） | 1 h | 文档审阅 |
+| 1 | 在 `Diagnostics` 加 `merge(Diagnostics&& other)`：按 index 重排追加。**重要**：合并顺序由 caller 决定；先实现串行版本做对照 | 1 h | ✅ `asn1_parallel_analyzer_tests.DiagnosticsMerge*`（3 项）：merge 后 items 顺序与预期一致；`error_count` 聚合；空合并 |
+| 2 | `SymbolTable` 加按 module 分片支持：`declare(module_id, names)`、`merge(SymbolTable&& other)`。保留单线程兼容路径 | 2 h | ✅ `asn1_parallel_analyzer_tests.SymbolTableMerge*`（2 项）：合入 / duplicate 检测 |
+| 3 | `Analyzer::declare_pass` 改为 `std::async(std::launch::async, modules, ...)`：每个 worker 处理一个 module；结束后串行 merge | 1 h | ✅ `declare_pass(int)` worker 路径已落地 |
+| 4 | `Analyzer::resolve_pass` 改为 per-module worker + 重试 sweep。worker 持完整符号表只读；residual 未解析项在 sweep 阶段按模块序解析 | 3 h | ✅ `resolve_pass(int)` worker 路径已落地；保留 import-visibility 串行（依赖 `modules_`） |
+| 5 | `Analyzer::lower_pass` 改为 per-module worker + arena merge。lowered type arena per-worker，pass 结束按 module index 串行拷贝到顶层 arena | 3 h | ❌ **保持串行**（per-module arena + 重映射 deferred，理由见上） |
+| 6 | `Analyzer::tag_pass` 保留串行（标注原因） | 0 h | ✅ |
+| 7 | `asn1cxx --parallel <N>` CLI；`Diagnostics::merge` + 顶层 merge orchestrator；`Analyzer::analyze` parallel 参数 | 1 h | ✅ CLI smoke `Cli.ParallelModeProducesByteIdenticalOutput` 1 项 |
+| 8 | 可重现性门禁：`tests/CMakeLists.txt` 新增「parallel vs serial equivalence」门禁：LPP + S1AP + RRC 跑两遍（`--parallel 0` 与 `--parallel 16`），产物 `diff` 必须空 | 2 h | ✅ 单元测试覆盖 5 个 fixture 模块 + CLI 字节相等门禁（LPP） |
+| 9 | sanitizer build + Release build 都过；ctest 344/344 + 新门禁 11 项 | 1 h | ✅ Release **344/344** + sanitizer **344/344**（0 ASan/UBSan） |
+| 10 | 文档：`status.md` 性能数字；`changelog.md` P3-1 条目；`architecture.md` 标「并行分析」段落（依赖图、Diagnostics 合并协议） | 1 h | ✅ status.md / changelog.md 已更新；architecture.md 设计已落进 status.md「当前阶段」段 |
 
-**总估时：~15 h（两个工作日）。**
+**实际落地：~9 h（declare + resolve 并行；lower 串行 + deferred）。**
+
+### 验证（2026-10-17）
+
+- `asn1_parallel_analyzer_tests`（10 项）全过：Diagnostics::merge 字节
+  级序列 / error_count 聚合 / 空合并；SymbolTable::merge 合入 /
+  duplicate 检测；5 个 fixture 模块（tiny single-module / multi-module
+  import / undefined type / unknown field / duplicate symbol）在
+  `--parallel 0` 与 `--parallel 16` 下 diagnostics **逐字节相同** +
+  error_count 一致。
+- `Cli.ParallelModeProducesByteIdenticalOutput`：LPP 14.3.0 fixture 上
+  `--parallel 0` 与 `--parallel 16` 生成的 `generated.hpp/.cpp` 在
+  namespace 替换后**逐字节相同**（含 sanitizer）。
+- Release + sanitizer 全量 ctest **344/344** 通过，零 ASan/UBSan 报错。
+- 手工验证 RRC 8.6.0（largest fixture，78 模块）：serial vs `--parallel 16`
+  生成 `generated.hpp` SHA-256 一致（`af86e15d...`）。
 
 ### 不在范围内（防止蔓延）
 
@@ -141,6 +181,7 @@ message + 同样的顺序）。
 - 不并行 emit：emit 产物与并行分析无关，独立项。
 - 不在 `Diagnostics` 加全局序号或原子化 `vector::push_back`：原子化能
   解决正确性但仍会改变顺序，不可重现。
+- 不并行 `lower_pass`：per-module arena 重映射 deferred（见上）。
 
 ---
 

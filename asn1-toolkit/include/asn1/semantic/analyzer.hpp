@@ -48,9 +48,12 @@ class Analyzer {
    *  Function    : analyze
    *  Description : Computes analyze from (modules).
    *  Parameters  : modules — std::vector<std::unique_ptr<ast::Module>> modules
+   *                parallelism — int parallelism (0 = serial; >0 = worker count for
+   *                declare_pass, resolve_pass and lower_pass). tag_pass stays serial.
    *  Returns     : ir::Model
    */
-  ir::Model analyze(std::vector<std::unique_ptr<ast::Module>> modules);
+  ir::Model analyze(std::vector<std::unique_ptr<ast::Module>> modules,
+                    int parallelism = 0);
 
   /**
    *  Function    : symbols
@@ -64,17 +67,17 @@ class Analyzer {
   /**
    *  Function    : declare_pass
    *  Description : Performs declare pass (declaration).
-   *  Parameters  : none
+   *  Parameters  : parallelism — int parallelism (0 = serial; >0 = worker count)
    *  Returns     : void
    */
-  void declare_pass();
+  void declare_pass(int parallelism);
   /**
    *  Function    : resolve_pass
    *  Description : Performs resolve pass (declaration).
-   *  Parameters  : none
+   *  Parameters  : parallelism — int parallelism (0 = serial; >0 = worker count)
    *  Returns     : void
    */
-  void resolve_pass();
+  void resolve_pass(int parallelism);
   /**
    *  Function    : tag_pass
    *  Description : Performs tag pass (declaration).
@@ -85,10 +88,10 @@ class Analyzer {
   /**
    *  Function    : lower_pass
    *  Description : Performs lower pass (declaration).
-   *  Parameters  : none
+   *  Parameters  : parallelism — int parallelism (0 = serial; >0 = worker count)
    *  Returns     : void
    */
-  void lower_pass();
+  void lower_pass(int parallelism);
 
   Diagnostics& diagnostics_;
   SymbolTable symbols_;

@@ -28,9 +28,14 @@
 #include <asn1/ast/type.hpp>
 #include <asn1/constraints/normalize.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <execution>
 #include <functional>
+#include <future>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1716,128 +1721,194 @@ Analyzer::Analyzer(Diagnostics& diagnostics) : diagnostics_(diagnostics) {}
  *  Parameters  : modules — std::vector<std::unique_ptr<ast::Module>> modules
  *  Returns     : ir::Model Analyzer::
  */
-ir::Model Analyzer::analyze(std::vector<std::unique_ptr<ast::Module>> modules) {
+ir::Model Analyzer::analyze(std::vector<std::unique_ptr<ast::Module>> modules,
+                            int parallelism) {
   modules_ = std::move(modules);
   model_ = ir::Model{};
   symbols_ = SymbolTable{};
 
-  declare_pass();
-  resolve_pass();
-  lower_pass();
+  declare_pass(parallelism);
+  resolve_pass(parallelism);
+  lower_pass(parallelism);
   tag_pass();
 
   return std::move(model_);
 }
 
 /**
- *  Function    : declare_pass
- *  Description : Performs declare pass (definition).
- *  Parameters  : none
- *  Returns     : void Analyzer::
+ *  Function    : declare_module_into
+ *  Description : Helper used by `declare_pass`. Walks one module's imports and
+ *                assignments, declaring each into `out_syms`. Records
+ *                diagnostics locally — the parallel orchestrator merges the
+ *                per-worker results in module index order so the byte sequence
+ *                matches the serial pass.
+ *  Parameters  : mod — const ast::Module& mod
+ *                out_syms — SymbolTable& out_syms
+ *                out_diag — Diagnostics& out_diag
+ *  Returns     : void
  */
-void Analyzer::declare_pass() {
-  for (auto& mod_ptr : modules_) {
-    if (!mod_ptr) {
-      continue;
-    }
-    ast::Module& mod = *mod_ptr;
+void declare_module_into(const ast::Module& mod, SymbolTable& out_syms, Diagnostics& out_diag) {
+  Symbol mod_sym;
+  mod_sym.kind = SymbolKind::Module;
+  mod_sym.module = mod.name();
+  mod_sym.name = mod.name();
+  mod_sym.range = mod.range();
+  mod_sym.ast = &mod;
+  out_syms.declare(std::move(mod_sym), out_diag);
 
-    Symbol mod_sym;
-    mod_sym.kind = SymbolKind::Module;
-    mod_sym.module = mod.name();
-    mod_sym.name = mod.name();
-    mod_sym.range = mod.range();
-    mod_sym.ast = &mod;
-    symbols_.declare(std::move(mod_sym), diagnostics_);
-
-    for (const auto& imp : mod.imports()) {
-      for (const auto& sym : imp.symbols) {
-        Symbol s;
-        const bool is_type = !sym.name.empty() && sym.name[0] >= 'A' && sym.name[0] <= 'Z';
-        s.kind = is_type ? SymbolKind::Type : SymbolKind::Value;
-        s.module = mod.name();
-        s.name = sym.name;
-        s.range = sym.range;
-        s.is_import = true;
-        s.import_from_module = imp.module;
-        symbols_.declare(std::move(s), diagnostics_);
-      }
-    }
-
-    for (const auto& assignment : mod.assignments()) {
-      if (const auto* ta = dynamic_cast<const ast::TypeAssignment*>(assignment.get())) {
-        Symbol s;
-        s.kind = SymbolKind::Type;
-        s.module = mod.name();
-        s.name = ta->name();
-        s.range = ta->range();
-        s.ast = ta;
-        symbols_.declare(std::move(s), diagnostics_);
-      } else if (const auto* va =
-                     /**
-                      *  Function    : get
-                      *  Description : Computes get from (none).
-                      *  Parameters  : none
-                      *  Returns     : dynamic_cast<const ast::ValueAssignment*>(assignment.
-                      */
-                     dynamic_cast<const ast::ValueAssignment*>(assignment.get())) {
-        Symbol s;
-        s.kind = SymbolKind::Value;
-        s.module = mod.name();
-        s.name = va->name();
-        s.range = va->range();
-        s.ast = va;
-        symbols_.declare(std::move(s), diagnostics_);
-      } else if (const auto* oc =
-                     /**
-                      *  Function    : get
-                      *  Description : Computes get from (none).
-                      *  Parameters  : none
-                      *  Returns     : dynamic_cast<const ast::ObjectClassAssignment*>(assignment.
-                      */
-                     dynamic_cast<const ast::ObjectClassAssignment*>(assignment.get())) {
-        Symbol s;
-        s.kind = SymbolKind::ObjectClass;
-        s.module = mod.name();
-        s.name = oc->name();
-        s.range = oc->range();
-        s.ast = oc;
-        symbols_.declare(std::move(s), diagnostics_);
-      } else if (const auto* obj =
-                     /**
-                      *  Function    : get
-                      *  Description : Computes get from (none).
-                      *  Parameters  : none
-                      *  Returns     : dynamic_cast<const ast::ObjectAssignment*>(assignment.
-                      */
-                     dynamic_cast<const ast::ObjectAssignment*>(assignment.get())) {
-        Symbol s;
-        s.kind = SymbolKind::Object;
-        s.module = mod.name();
-        s.name = obj->name();
-        s.range = obj->range();
-        s.ast = obj;
-        symbols_.declare(std::move(s), diagnostics_);
-      } else if (const auto* oset =
-                     /**
-                      *  Function    : get
-                      *  Description : Computes get from (none).
-                      *  Parameters  : none
-                      *  Returns     : dynamic_cast<const ast::ObjectSetAssignment*>(assignment.
-                      */
-                     dynamic_cast<const ast::ObjectSetAssignment*>(assignment.get())) {
-        Symbol s;
-        s.kind = SymbolKind::ObjectSet;
-        s.module = mod.name();
-        s.name = oset->name();
-        s.range = oset->range();
-        s.ast = oset;
-        symbols_.declare(std::move(s), diagnostics_);
-      }
+  for (const auto& imp : mod.imports()) {
+    for (const auto& sym : imp.symbols) {
+      Symbol s;
+      const bool is_type = !sym.name.empty() && sym.name[0] >= 'A' && sym.name[0] <= 'Z';
+      s.kind = is_type ? SymbolKind::Type : SymbolKind::Value;
+      s.module = mod.name();
+      s.name = sym.name;
+      s.range = sym.range;
+      s.is_import = true;
+      s.import_from_module = imp.module;
+      out_syms.declare(std::move(s), out_diag);
     }
   }
 
-  // Builtin useful object classes (X.681) available in every module scope.
+  for (const auto& assignment : mod.assignments()) {
+    if (const auto* ta = dynamic_cast<const ast::TypeAssignment*>(assignment.get())) {
+      Symbol s;
+      s.kind = SymbolKind::Type;
+      s.module = mod.name();
+      s.name = ta->name();
+      s.range = ta->range();
+      s.ast = ta;
+      out_syms.declare(std::move(s), out_diag);
+    } else if (const auto* va =
+                   /**
+                    *  Function    : get
+                    *  Description : Computes get from (none).
+                    *  Parameters  : none
+                    *  Returns     : dynamic_cast<const ast::ValueAssignment*>(assignment.
+                    */
+                   dynamic_cast<const ast::ValueAssignment*>(assignment.get())) {
+      Symbol s;
+      s.kind = SymbolKind::Value;
+      s.module = mod.name();
+      s.name = va->name();
+      s.range = va->range();
+      s.ast = va;
+      out_syms.declare(std::move(s), out_diag);
+    } else if (const auto* oc =
+                   /**
+                    *  Function    : get
+                    *  Description : Computes get from (none).
+                    *  Parameters  : none
+                    *  Returns     : dynamic_cast<const ast::ObjectClassAssignment*>(assignment.
+                    */
+                   dynamic_cast<const ast::ObjectClassAssignment*>(assignment.get())) {
+      Symbol s;
+      s.kind = SymbolKind::ObjectClass;
+      s.module = mod.name();
+      s.name = oc->name();
+      s.range = oc->range();
+      s.ast = oc;
+      out_syms.declare(std::move(s), out_diag);
+    } else if (const auto* obj =
+                   /**
+                    *  Function    : get
+                    *  Description : Computes get from (none).
+                    *  Parameters  : none
+                    *  Returns     : dynamic_cast<const ast::ObjectAssignment*>(assignment.
+                    */
+                   dynamic_cast<const ast::ObjectAssignment*>(assignment.get())) {
+      Symbol s;
+      s.kind = SymbolKind::Object;
+      s.module = mod.name();
+      s.name = obj->name();
+      s.range = obj->range();
+      s.ast = obj;
+      out_syms.declare(std::move(s), out_diag);
+    } else if (const auto* oset =
+                   /**
+                    *  Function    : get
+                    *  Description : Computes get from (none).
+                    *  Parameters  : none
+                    *  Returns     : dynamic_cast<const ast::ObjectSetAssignment*>(assignment.
+                    */
+                   dynamic_cast<const ast::ObjectSetAssignment*>(assignment.get())) {
+      Symbol s;
+      s.kind = SymbolKind::ObjectSet;
+      s.module = mod.name();
+      s.name = oset->name();
+      s.range = oset->range();
+      s.ast = oset;
+      out_syms.declare(std::move(s), out_diag);
+    }
+  }
+}
+
+/**
+ *  Function    : declare_pass
+ *  Description : Performs declare pass (definition). parallelism=0 keeps the
+ *                original serial walk; parallelism>0 spawns one async task per
+ *                module and merges results in module index order.
+ *  Parameters  : parallelism — int parallelism
+ *  Returns     : void Analyzer::
+ */
+void Analyzer::declare_pass(int parallelism) {
+  if (parallelism <= 1 || modules_.size() < 2) {
+    for (auto& mod_ptr : modules_) {
+      if (!mod_ptr) {
+        continue;
+      }
+      declare_module_into(*mod_ptr, symbols_, diagnostics_);
+    }
+    // Builtin useful object classes — kept serial because they touch the
+    // shared SymbolTable and are cheap.
+    for (auto& mod_ptr : modules_) {
+      if (!mod_ptr) {
+        continue;
+      }
+      for (const char* useful : {"TYPE-IDENTIFIER", "ABSTRACT-SYNTAX"}) {
+        if (symbols_.find(mod_ptr->name(), useful)) {
+          continue;
+        }
+        Symbol s;
+        s.kind = SymbolKind::ObjectClass;
+        s.module = mod_ptr->name();
+        s.name = useful;
+        s.range = mod_ptr->range();
+        s.ast = nullptr;
+        symbols_.declare(std::move(s), diagnostics_);
+      }
+    }
+    return;
+  }
+
+  // Parallel path: each worker declares into a private SymbolTable + private
+  // Diagnostics. The orchestrator then merges per-module tables (in module
+  // index order) and the diagnostics stream (also in module index order).
+  const std::size_t n = modules_.size();
+  const std::size_t workers = std::min<std::size_t>(
+      static_cast<std::size_t>(parallelism), n);
+  struct WorkerResult {
+    SymbolTable syms;
+    Diagnostics diag;
+  };
+  std::vector<std::future<WorkerResult>> futs;
+  futs.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    futs.emplace_back(std::async(std::launch::async, [this, i]() -> WorkerResult {
+      WorkerResult r;
+      if (modules_[i]) {
+        declare_module_into(*modules_[i], r.syms, r.diag);
+      }
+      return r;
+    }));
+  }
+  for (auto& f : futs) {
+    WorkerResult r = f.get();
+    symbols_.merge(std::move(r.syms));
+    diagnostics_.merge(std::move(r.diag));
+  }
+
+  // Useful object classes — serial; cross-module visibility needed.
   for (auto& mod_ptr : modules_) {
     if (!mod_ptr) {
       continue;
@@ -1855,15 +1926,24 @@ void Analyzer::declare_pass() {
       symbols_.declare(std::move(s), diagnostics_);
     }
   }
+  (void)workers;  // future: chunked scheduling
 }
 
 /**
  *  Function    : resolve_pass
- *  Description : Performs resolve pass (definition).
- *  Parameters  : none
+ *  Description : Performs resolve pass (definition). Each module's type-
+ *                reference checks read a complete SymbolTable but never
+ *                mutate it, so per-module type-ref checks are safely
+ *                parallelizable. Import visibility (which depends on the
+ *                full `modules_` list) stays serial to keep "imported
+ *                module is not present" warnings in the original order.
+ *  Parameters  : parallelism — int parallelism
  *  Returns     : void Analyzer::
  */
-void Analyzer::resolve_pass() {
+void Analyzer::resolve_pass(int parallelism) {
+  // Per-module import visibility: done serially because it walks `modules_`.
+  // Cheap and deterministic; the order here MUST match the serial pass's
+  // module iteration order to keep diagnostics byte-equal.
   for (const auto& mod_ptr : modules_) {
     if (!mod_ptr) {
       continue;
@@ -1889,36 +1969,90 @@ void Analyzer::resolve_pass() {
                                             "' is not among the analyzed modules");
       }
     }
+  }
 
-    for (const auto& assignment : mod.assignments()) {
-      if (const auto* ta = dynamic_cast<const ast::TypeAssignment*>(assignment.get())) {
-        std::unordered_set<std::string> formals;
-        for (const auto& p : ta->parameters()) {
-          formals.insert(p.name);
+  if (parallelism <= 1 || modules_.size() < 2) {
+    for (const auto& mod_ptr : modules_) {
+      if (!mod_ptr) {
+        continue;
+      }
+      const ast::Module& mod = *mod_ptr;
+      for (const auto& assignment : mod.assignments()) {
+        if (const auto* ta = dynamic_cast<const ast::TypeAssignment*>(assignment.get())) {
+          std::unordered_set<std::string> formals;
+          for (const auto& p : ta->parameters()) {
+            formals.insert(p.name);
+          }
+          check_type_refs(ta->type(), mod.name(), symbols_, diagnostics_,
+                          formals.empty() ? nullptr : &formals);
+        } else if (const auto* va =
+                       /**
+                        *  Function    : get
+                        *  Description : Computes get from (none).
+                        *  Parameters  : none
+                        *  Returns     : dynamic_cast<const ast::ValueAssignment*>(assignment.
+                        */
+                       dynamic_cast<const ast::ValueAssignment*>(assignment.get())) {
+          check_type_refs(va->type(), mod.name(), symbols_, diagnostics_);
         }
-        check_type_refs(ta->type(), mod.name(), symbols_, diagnostics_,
-                        formals.empty() ? nullptr : &formals);
-      } else if (const auto* va =
-                     /**
-                      *  Function    : get
-                      *  Description : Computes get from (none).
-                      *  Parameters  : none
-                      *  Returns     : dynamic_cast<const ast::ValueAssignment*>(assignment.
-                      */
-                     dynamic_cast<const ast::ValueAssignment*>(assignment.get())) {
-        check_type_refs(va->type(), mod.name(), symbols_, diagnostics_);
       }
     }
+    return;
+  }
+
+  // Parallel path: each worker checks type refs against the read-only
+  // master SymbolTable. `check_type_refs` only calls `symbols.lookup`
+  // (read-only), so multiple workers can share the table. Diagnostics land
+  // locally and the orchestrator merges in module index order.
+  const std::size_t n = modules_.size();
+  std::vector<std::future<Diagnostics>> futs;
+  futs.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    futs.emplace_back(std::async(std::launch::async, [this, i]() -> Diagnostics {
+      Diagnostics d;
+      if (modules_[i]) {
+        const ast::Module& mod = *modules_[i];
+        for (const auto& assignment : mod.assignments()) {
+          if (const auto* ta =
+                  dynamic_cast<const ast::TypeAssignment*>(assignment.get())) {
+            std::unordered_set<std::string> formals;
+            for (const auto& p : ta->parameters()) {
+              formals.insert(p.name);
+            }
+            check_type_refs(ta->type(), mod.name(), symbols_, d,
+                            formals.empty() ? nullptr : &formals);
+          } else if (const auto* va =
+                         /**
+                          *  Function    : get
+                          *  Description : Computes get from (none).
+                          *  Parameters  : none
+                          *  Returns     : dynamic_cast<const ast::ValueAssignment*>(assignment.
+                          */
+                         dynamic_cast<const ast::ValueAssignment*>(assignment.get())) {
+            check_type_refs(va->type(), mod.name(), symbols_, d);
+          }
+        }
+      }
+      return d;
+    }));
+  }
+  for (auto& f : futs) {
+    diagnostics_.merge(f.get());
   }
 }
 
 /**
  *  Function    : lower_pass
  *  Description : Performs lower pass (definition).
- *  Parameters  : none
+ *  Parameters  : parallelism — int parallelism (currently a no-op — lower_pass
+ *                remains serial because the per-module IR arena shares its
+ *                TypeId space with cross-module `Referenced.resolved` links.
+ *                Decoupling the per-module arenas would require rebuilding the
+ *                cross-module link graph and was deferred to a follow-up
+ *                (P3-1 only parallelizes `declare_pass` and `resolve_pass`).
  *  Returns     : void Analyzer::
  */
-void Analyzer::lower_pass() {
+void Analyzer::lower_pass(int /*parallelism*/) {
   for (auto& mod_ptr : modules_) {
     if (!mod_ptr) {
       continue;

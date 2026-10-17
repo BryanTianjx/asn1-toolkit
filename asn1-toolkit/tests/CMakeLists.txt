@@ -29,6 +29,14 @@ add_executable(asn1_semantic_tests semantic/semantic_test.cpp)
 target_link_libraries(asn1_semantic_tests PRIVATE asn1::frontend asn1::semantic GTest::gtest_main)
 gtest_discover_tests(asn1_semantic_tests)
 
+# P3-1 parallel-frontend unit tests. Covers Diagnostics::merge byte-order,
+# SymbolTable::merge, and the parallel-vs-serial diagnostic equivalence gate.
+add_executable(asn1_parallel_analyzer_tests
+               semantic/parallel_analyzer_test.cpp)
+target_link_libraries(asn1_parallel_analyzer_tests PRIVATE asn1::frontend
+                      asn1::semantic GTest::gtest_main)
+gtest_discover_tests(asn1_parallel_analyzer_tests)
+
 add_executable(asn1_constraints_tests constraints/constraints_test.cpp)
 target_link_libraries(asn1_constraints_tests PRIVATE asn1::frontend asn1::constraints asn1::semantic GTest::gtest_main)
 gtest_discover_tests(asn1_constraints_tests)

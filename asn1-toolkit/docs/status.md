@@ -6,7 +6,37 @@
 
 ## 当前阶段
 
-**Phase 46 — 增量代码生成（`--emit-cache` / `--no-emit-cache`），内容哈希缓存就位。**
+**Phase 47 — 前端并行分析（`--parallel <N>`，`declare_pass` + `resolve_pass`
+按模块并行，diagnostics 字节级可重现）。**
+
+- `Analyzer::analyze(modules, parallelism = 0)` 新增 `parallelism` 参数；
+  `0`（默认）= 串行基线（保持现状，CI 金标准对验强制），`>0` = worker 数。
+- 并行范围：`declare_pass` 每模块独立声明符号 + 局部 `SymbolTable`，
+  pass 结束后按 module index 串行合并；`resolve_pass` 每模块持完整符号表
+  只读视图 + 局部 `Diagnostics`，worker 间不共享跨模块 diagnostics；
+  `tag_pass` 仍串行。
+- `lower_pass` **保持串行**：per-module `LowerCtx` 共享 `model_.arena`
+  + 跨模块 `Referenced.resolved` 链接，把 arena 拆 worker + 串行重映射
+  需要重建跨模块链接图，**作为后续工作 deferred**。P3-1 仅并行前两趟。
+- API 扩展：`Diagnostics::merge(Diagnostics&&)`（caller 决定追加顺序，items
+  按 merge-call 序排列，与串行 baseline 字节级一致）；`SymbolTable::merge(
+  SymbolTable&&)`（按 module key 合入，worker 间 duplicate 检测由 declare
+  自身保证）。`Analyzer::analyze` 形参 `parallelism` 不破坏现有调用（默认
+  0 = 串行）。
+- CLI：`asn1cxx --parallel <N>`（N ∈ 0..1024，0 = 串行 = 默认；>0 启用
+  worker 线程池）；`--help` 已文档化。
+- 验证：`asn1_parallel_analyzer_tests`（10 项）：`Diagnostics::merge` 序列
+  / 空合并 / `error_count` 聚合；`SymbolTable::merge` 合入 + duplicate
+  检测；模块 fixture（tiny / multi-module import / undefined type / unknown
+  field / duplicate symbol）下 `--parallel 0` 与 `--parallel 16` diagnostics
+  **逐字节相同** + error_count 一致。`asn1_cli_tests` 新增
+  `Cli.ParallelModeProducesByteIdenticalOutput`：LPP 14.3.0 fixture 上
+  `--parallel 0` 与 `--parallel 16` 生成的 `generated.hpp/.cpp` 在
+  namespace 替换后**逐字节相同**。Release + sanitizer（ASan+UBSan）全量
+  ctest **344/344** 通过，零 ASan/UBSan 报错。
+- 文档：`docs/todo.md` P3-1 条目增「`lower_pass` 保持串行」说明 + 「后续
+  工作」段落；`docs/changelog.md` P3-1 落地条目；`status.md` 当前阶段 +
+  构建与测试状态 + 剩余工作更新。
 
 - `--emit-cache`（默认）/ `--no-emit-cache` 已落地：缓存目录
   `<emit-dir>/.asn1cxx-cache/`，每单元（flat: `default`；split: 模块 ns
@@ -37,8 +67,8 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **333/333 通过**，0 失败（含 P2-3 内容哈希缓存 8 项单元测试 + 5 项 CLI 冒烟） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **333/333 通过**，0 失败，零 ASan/UBSan 报错 |
+| Release 构建 ctest | **344/344 通过**，0 失败（含 P3-1 前端并行 10 项单元测试 + 1 项 CLI 字节相等门禁；P2-3 内容哈希缓存 8 项单元测试 + 5 项 CLI 冒烟） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **344/344 通过**，0 失败，零 ASan/UBSan 报错 |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态
@@ -68,8 +98,9 @@
 | 完整模块编译 CI / 3GPP 编解码对等验证 | emit + compile 已过；BER/DER/OER 单构造金标准向量已对验（tlv_golden）；剩余为 3GPP 协议消息级完整向量（逐消息 PDU）的对验 | 扩展金标准向量覆盖面；逐步引入协议级消息向量 |
 | 许可证文件 | README 标注 TBD（开放源码，发布时添加）；源码头已标注 PROCODEC 版权 2026–2031 | 发布前补 LICENSE |
 | PER 位级正确性外部对验（协议级） | `per_golden.asn` 综合向量（含扩展 addition/bitmap/fragmentation/约束原语）已与 asn1c oracle 字节级对验通过；剩余为 3GPP 协议消息级完整向量的对验 | 扩展 per_golden 向量覆盖面；逐步引入协议级消息向量 |
-| 增量代码生成（P2-3，未排期；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | asn1cxx 每次全量 emit | 内容哈希缓存（源文件 hash → 已生成产物），与 `--emit-split` 按模块粒度天然配合。子任务清单与估时见 todo.md（~7 h / 1 工作日） |
-| 前端并行分析（P3-1，未排期；详见 [todo.md](todo.md#p3-1--前端并行分析)） | 语义分析四趟串行 | 第一趟符号声明按模块并行，后三趟按依赖图并行；需线程安全 Diagnostics；诊断输出逐字节可重现是硬要求。子任务清单与估时见 todo.md（~15 h / 2 工作日） |
+| 增量代码生成（P2-3，已落地；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | ✅ 已完成：`--emit-cache`/`--no-emit-cache` + `.asn1cxx-cache/` 内容哈希 + split 模式按单元粒度 + CLI `--help` 文档化 + 8 项单元测试 + 5 项 CLI 冒烟 + Release/sanitizer 333/333 | — |
+| 前端并行分析（P3-1，已落地；详见 [todo.md](todo.md#p3-1--前端并行分析)） | ✅ 已完成 `declare_pass` + `resolve_pass` 并行；`lower_pass` / `tag_pass` 保留串行。`asn1cxx --parallel <N>` + `Analyzer::analyze(modules, N)` + `Diagnostics::merge` + `SymbolTable::merge`；CLI/单元/diagnostics 字节级一致性 + Release/sanitizer 344/344 | — |
+| 后续工作（frontend） | `lower_pass` 并行（per-module arena + 重映射 `Referenced.resolved`） | 后续 Phase；当前 lower 在 78 模块 fixture 上 ~10 s，仍是 release 路径的次要成本 |
 
 ## 已知限制
 
