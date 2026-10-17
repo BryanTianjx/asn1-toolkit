@@ -98,9 +98,8 @@
 | 完整模块编译 CI / 3GPP 编解码对等验证 | emit + compile 已过；BER/DER/OER 单构造金标准向量已对验（tlv_golden）；剩余为 3GPP 协议消息级完整向量（逐消息 PDU）的对验 | 扩展金标准向量覆盖面；逐步引入协议级消息向量 |
 | 许可证文件 | README 标注 TBD（开放源码，发布时添加）；源码头已标注 PROCODEC 版权 2026–2031 | 发布前补 LICENSE |
 | PER 位级正确性外部对验（协议级） | `per_golden.asn` 综合向量（含扩展 addition/bitmap/fragmentation/约束原语）已与 asn1c oracle 字节级对验通过；剩余为 3GPP 协议消息级完整向量的对验 | 扩展 per_golden 向量覆盖面；逐步引入协议级消息向量 |
-| 增量代码生成（P2-3，已落地；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | ✅ 已完成：`--emit-cache`/`--no-emit-cache` + `.asn1cxx-cache/` 内容哈希 + split 模式按单元粒度 + CLI `--help` 文档化 + 8 项单元测试 + 5 项 CLI 冒烟 + Release/sanitizer 333/333 | — |
-| 前端并行分析（P3-1，已落地；详见 [todo.md](todo.md#p3-1--前端并行分析)） | ✅ 已完成 `declare_pass` + `resolve_pass` 并行；`lower_pass` / `tag_pass` 保留串行。`asn1cxx --parallel <N>` + `Analyzer::analyze(modules, N)` + `Diagnostics::merge` + `SymbolTable::merge`；CLI/单元/diagnostics 字节级一致性 + Release/sanitizer 344/344 | — |
-| 后续工作（frontend） | `lower_pass` 并行（per-module arena + 重映射 `Referenced.resolved`） | 后续 Phase；当前 lower 在 78 模块 fixture 上 ~10 s，仍是 release 路径的次要成本 |
+| 增量代码生成（P2-3，已落地；详见 [todo.md](todo.md#p2-3--增量代码生成内容哈希缓存)） | ✅ P2-3 自身验证：`--emit-cache`/`--no-emit-cache` + `.asn1cxx-cache/` 内容哈希 + split 模式按单元粒度 + CLI `--help` 文档化 + 8 项单元测试 + 5 项 CLI 冒烟；P2-3 落地当时 ctest **333/333**（Release + sanitizer）。P3-1 累计 → **344/344** | — |
+| 前端并行分析（P3-1，已落地；详见 [todo.md](todo.md#p3-1--前端并行分析)） | ✅ 已完成 `declare_pass` + `resolve_pass` 并行；`lower_pass` 保留串行是有意决定（per-module arena + `Referenced.resolved` 重映射 deferred，理由见 todo.md P3-1 「实际落地」段）；`asn1cxx --parallel <N>` + `Analyzer::analyze(modules, N)` + `Diagnostics::merge` + `SymbolTable::merge`；CLI/单元/diagnostics 字节级一致性 + Release/sanitizer 344/344 | — |
 
 ## 已知限制
 
