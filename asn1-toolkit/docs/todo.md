@@ -193,14 +193,103 @@ worker 线程池按模块分片）。`Diagnostics::merge` + `SymbolTable::merge`
 | sanitizer 化（ASan + UBSan）漏掉数据竞争 | P3-1 强制加 TSan 临时构建验证（`-fsanitize=thread`）；CI 上跑一次确认无 race |
 | 缓存错命中 = 旧产物混进构建 | P2-3 强制产物 SHA256 后校验；CI 跑 `--no-emit-cache` 与带缓存两遍做 diff |
 | `release` 路径与 `debug` 路径行为不同 | 并行路径与串行路径共享同一 `Analyzer::analyze`，仅 orchestrator 不同；条件编译禁，避免路径分叉 |
+| 协议消息 oracle 捕获成本高、易引入 CI 阻塞 | P1-3 复用现有 `scripts/gen_per_golden.py` / `gen_tlv_golden.py` 框架；新增 `gen_protocol_vectors.py` 走"小批量 + 三 family 一次性"策略；oracle 文本 checked-in，CI 不联网 |
 
 ---
 
-## 排期建议
+## P1-3 — 3GPP 协议消息级金标准向量对验
 
-1. **先 P2-3**（缓存）：低风险、低耦合、独立价值（即使 P3-1 不做也能立
-   刻见效），估时 1 天。
-2. **再 P3-1**（并行分析）：依赖符号表 / Diagnostics 内部扩展，需先做
-   一轮完整 fixture 金标对验确保可重现；估时 2 天。
+### 目标
 
-两项合计 ~3 个工作日。Phase 46 / 47 名义可作占位。
+[status.md](status.md) 当前 6 项「剩余工作」中的 2 项本质上是同一件事：
+
+- **完整模块编译 CI / 3GPP 编解码对等验证**：「剩余为 3GPP 协议消息级完整向量（逐消息 PDU）的对验；建议：扩展金标准向量覆盖面，逐步引入协议级消息向量」
+- **PER 位级正确性外部对验（协议级）**：「剩余为 3GPP 协议消息级完整向量的对验；建议：扩展 per_golden 向量覆盖面」
+
+P1-3 把它们合并为一项 TODO：**抓取 / 生成 3GPP 真实协议消息字节 → 与
+asn1-toolkit 编码字节逐位对验**。覆盖 PER/APER、BER/DER/OER、CER
+三大家族，每家族 3 个候选 PDU：
+
+- **LPP-Message**（`tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn`，LPP 14.3.0）
+- **S1AP-PDU**（`tests/fixtures/telecom/s1ap_14_4_0/s1ap_14_4_0.asn`，S1AP 14.4.0）
+- **RRC DL-DCCH-Message**（`tests/fixtures/telecom/rrc_8_6_0/EUTRA-RRC-Definitions.asn`，RRC 8.6.0，78 模块最大 fixture）
+
+### 为什么现在做
+
+P3-1 落地后 frontend 已经能处理 3GPP 大 fixture 串行+并行；`status.md`
+「编译门禁状态」表里三个 fixture × 12 codec 全 `-fsyntax-only` 零错误。
+**但 emit 成功 ≠ 编解码对等** —— 当前三个 fixture 没有任何捕获的协议
+消息字节可对比，只验证了"生成代码可编译"，没验证"生成代码编出的
+字节 = 真实 3GPP 消息字节"。
+
+asn1c / asn1tools 都已对这三个 fixture 提供 BER↔UPER 的双向 oracle
+桥（见 `scripts/gen_per_golden.py` / `gen_tlv_golden.py` 已用的 asn1c
+oracle 路径）。P1-3 是把这些 oracle 从"综合构造 per_golden"扩到"真实
+3GPP 消息"。
+
+### 设计
+
+- **三家族共用 oracle 基础设施**：新增 `scripts/gen_protocol_vectors.py`，
+  走 `asn1c` BER→UPER/APER/OER 桥（同 `gen_per_golden.py` 既有路径）。
+  asn1tools 处理 BER/DER/OER 同 family 内值等价性。三家族各产一份
+  `.txt`，每条 `(pduname, codec, byte)`, checked-in, CI 离线用。
+- **fixture 选择策略**：每家族挑 3 个代表性 PDU（见上"3 个候选 PDU"）。
+  每个 PDU 至少抓 3 条样例：边界（min / max / 空字段）+ 典型
+  （real-world 抓包样本）。
+- **典型样本来源**：从公开 3GPP 测试向量（ASN1C 项目的
+  `c/tests/sample.asn1` 对应 binary、`openairinterface5g` 的 S1AP 测试
+  fixture 等）取真实捕获 PDU；不可得时用 asn1c `ber_encode` 跨
+  family oracle 桥自举（BER↔UPER/APER 由 asn1c 仲裁，OER 由 asn1c
+  仲裁 BER↔OER 字节，CER 无外部 oracle 走"条文推导 + DER 值等价"
+  同既有 `tests/cer/` 策略）。
+- **字节级对验**：`scripts/gen_protocol_vectors.py` 产 checked-in
+  `.txt`，新增 `tests/protocol/test_protocol_vectors.cpp` 跑 emit →
+  encode → diff；Release + sanitizer ctest 必过。
+- **fixture 编译门禁 + 协议字节级门禁双轨**：
+  - fixture 编译门禁（已有）：`add_custom_command` emit → `add_library(
+    STATIC)` → `g++ -std=c++17 -fsyntax-only` 全 0 错误。验证
+    "emit 成功 = 代码可编译"。
+  - 协议字节级门禁（新增）：emit + encode + byte-diff 真实 PDU。
+    验证 "emit 成功 = 编解码对等（vs 真实 3GPP 字节）"。
+- **失败模式**：
+  - asn1c / asn1tools 各自已知偏差（已在 P1-1 / P1-2 处理）：`ber`
+    SET 无规范序、`oer` asn1c `oer_encode` 已知 bug 等。新增条目
+    记录在 `scripts/gen_protocol_vectors.py` 头部同既有策略。
+  - asn1c / asn1tools 都错的极小概率：单 case X.680/X.691/X.696 条文
+    仲裁走 ITU PDF（与 `references/per-differential-validation.md`
+    `tlv-oer-differential-validation.md` 既有 PDF 仲裁路径一致）。
+
+### 子任务
+
+| # | 内容 | 估时 | 验证 |
+|---|------|------|------|
+| 1 | 新增 `scripts/gen_protocol_vectors.py`：选 3 fixture × 3 PDU 类型（min / max / 空 / 典型）× 5 codec（uper,aper,ber,der,oer）= ~45 条 oracle；走 asn1c/asn1tools 既有 BER↔family 桥 | 4 h | 脚本能复现 generate 已有 `tests/per/golden/` 56 条 + `tests/tlv/golden/` 16 条 oracle（同 fixture 既有 per_golden.asn 子集）；产出 `tests/protocol/golden/protocol_golden_vectors.txt` ~45 条 |
+| 2 | 新增 `tests/protocol/test_protocol_vectors.cpp`：emit 三个 fixture → 抓取每条 oracle → `encode` → diff → 报告 byte-level 一致；Release + sanitizer 都跑 | 3 h | Release **344/344 + N** + sanitizer **344/344 + N**；每条 oracle 字节级对验 |
+| 3 | 新增 `tests/protocol/CTestTestfile.cmake` + `tests/CMakeLists.txt` 注册；asn1cxx fixture compile gate 扩到 `asn1_protocol_lpp_up_compile` / `asn1_protocol_s1ap_uper_compile` / `asn1_protocol_rrc_uper_compile`（一次性 emit + 静态库编译 + 真实 PDU 字节 round-trip），3 fixture × 5 codec = 15 个新 gate | 2 h | ctest 新增 15 项；全过 |
+| 4 | LPP fixture 端到端实测：选定 3 条 `LPP-Message` 真实捕获（来源：openairinterface5g `lpp_test` 或自捕获），3 codec × 3 sample = 9 条 oracle | 2 h | `tests/protocol/test_protocol_vectors.cpp` 内 9 case 全过；CI 必跑 |
+| 5 | S1AP fixture 端到端：选定 3 条 `S1AP-PDU` 真实捕获（来源：openairinterface5g `s1ap_test` 或自捕获），同上 9 条 oracle | 2 h | 9 case 全过 |
+| 6 | RRC fixture 端到端：选定 3 条 `DL-DCCH-Message` 真实捕获（来源：asn1c `test` 目录或自捕获），同上 9 条 oracle | 2 h | 9 case 全过 |
+| 7 | CER 协议消息门禁：同 9 条 oracle（`S1AP-PDU` 已用 CER 重写，仅条文推导 + DER 值等价） | 1 h | 同上；产出 `tests/protocol/golden/protocol_cer_golden_vectors.txt` 9 条 |
+| 8 | sanitizer（ASan + UBSan）+ Release 全量 ctest 必过；`asn1_protocol_*_compile` gate 跑一遍字节级对验 | 1 h | Release **344/344 + N** + sanitizer **344/344 + N**；无 ASan/UBSan 报错 |
+| 9 | 文档：`status.md` 「剩余工作」表合并 P1-3 行 + 「金标准差分验证状态」表新增 protocol-level 行（按 LPP / S1AP / RRC × 5 codec 计数）；`changelog.md` P1-3 条目；`docs/architecture.md` 标「协议消息字节级对验」段落；`usage-guide.md` 增加 "3GPP 协议消息字节级 oracle" 引用 | 1 h | 文档审阅 |
+
+**总估时：~18 h（两个半工作日）。**
+
+### 排期
+
+- **先 P3-1**（已落地，commit `5856565`）：frontend 并行化已就位。
+- **再 P1-3**（本 TODO）：依赖 P3-1 已固化的 frontend 路径，需保证
+  --parallel 16 与 --parallel 0 在协议字节级门禁下**同样字节级一致**
+  —— 沿用 P3-1 的 byte-equality gate 思路，扩到协议级 fixture。
+- 估时 **2.5 工作日**；子任务 1+2+3 可最先做（建立 oracle 基础设施
+  + 编译门禁），4+5+6 串行做（每 fixture 一组真实捕获）。
+
+### 不在范围内（防止蔓延）
+
+- 不为协议消息生成"自构造 bitmap"金标准（无 oracle，等于自证）；必须
+  真实捕获或既有 asn1c 测试 fixture 复用。
+- 不重写既有 per_golden.asn / tlv_golden.asn 综合构造向量：那些是
+  **构造覆盖**（bitmap / fragmentation / 约束原语等），P1-3 是
+  **协议 PDU 覆盖**，互补而非替换。
+- 不抓全消息：3 fixture × 3 PDU × 5 codec 已经覆盖 ~45 条 oracle；
+  加更多 PDU 是"覆盖面"问题，估时不线性增长。
