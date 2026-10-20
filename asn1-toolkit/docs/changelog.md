@@ -8,6 +8,57 @@
 
 ### 2026-10-17
 
+**P2-4 sub-task 2 — 纯 C11 runtime 实现（`src/c_runtime/*.c` + `asn1::c_runtime` 静态库）**
+- 实现：`src/c_runtime/{c_common,bigint,bit_io,bit_string,byte_io,ber_tlv,per,jer,xer}.c`
+  ——每个头文件 `include/asn1/c_runtime/*.h` 声明的函数/方法全部填体实现；
+  与 C++ `asn1::BigInteger` / `asn1::BitWriter` / `asn1::BitReader` /
+  `asn1::ber::encode_tag/decode_tag/encode_length/decode_length` /
+  `asn1::per::{encode_constrained_whole_number, encode_length_determinant,
+  encode_unconstrained_whole_number, encode_bitstring, encode_octetstring}`
+  byte-equivalent。`asn1_per_int_range_t` + `asn1_per_size_range_t` 是 emit_c
+  直接使用的 per-type 入参。命名约定 `asn1_<codec>_<primitive>`
+  替代 C++ `namespace asn1::<codec>::<primitive>`（flat prefix，无嵌套）。
+- `asn1::c_runtime` CMake 静态库（`-std=c11 -Wall -Wextra -Wno-unused-parameter`，
+  与 C++ `add_subdirectory(tests)` 解耦：`set_source_files_properties` 把 C
+  per-file flag 限定到 `src/c_runtime/*.c`，不污染 `tests/` 里其它 C++ 目标）。
+- 子任务 2 覆盖的头声明：`asn1_c_common.h` 的 status name + byte view/buf
+  构造；`bigint.h` 的 init/free/from_decimal/sign/cmp/to_int64/to_bytes；
+  `bit_io.h` 全部（BitWriter + BitReader heap-owned，P2-1 bulk bitmap
+  fast path 保留）；`bit_string.h` init/free/resize；`byte_io.h` opaque
+  byte reader；`ber_tlv.h` tag + length 编码/解码（含 X.690 高 tag 号 +
+  长形式长度）；`per.h` 的 `asn1_per_encode_bool/decode_bool/.../bitstring/
+  octetstring`；`jer.h` / `xer.h` 的 writer + reader init/puts/printf。
+- 门禁升级：原 sub-task 1 `-fsyntax-only` 仅验证头解析；sub-task 2 把
+  `Asn1CHeaderSyntax`（echo placeholder）替换为 `asn1_c_runtime_smoke` 可执行
+  —— 链接 `asn1::c_runtime`，跑 `tests/c_lang/c_runtime_smoke.c`，对每个
+  头声明的函数调用 + canonical 字节验证 + 边界场景（truncated input、
+  length overflow、incomplete field、invalid decimal、空 buffer 等）。
+- 验证：`Asn1CRuntimeSmoke` 1 项（25+ 子检查全过）：
+  - 状态名：每种 `asn1_status_t` 名称稳定，超出枚举值返回 fallback；
+  - BigInteger：decimal → limbs round trip；`to_int64` 对 `2^64` 报
+    `LENGTH_OVERFLOW`；`to_bytes` 对 0 → `{0x00}`；`is_zero`/`sign`/`cmp`
+    在 0/正/负/symmetric 配对下行为正确；空字符串 / 单 `-` / 非数字字符
+    报 `INVALID_ARGUMENT`；
+  - BitWriter + BitReader：4 字节 DE AD BE EF 写入 + 读回 = 字节相等；
+    P2-1 8-bit bitmap → `0xB2`（10110010）；`put_bits(0x123, 12)` →
+    `{0x12, 0x30}`（MSB-first，bottom-12-bits-of-value 约定）；
+    `get_bits` 超尾 → `TRUNCATED`；
+  - BER TLV：universal INTEGER tag `{0x02}` 编码 + 解析；高 tag 号
+    (`constructed=1, number=100`) → `{0x3F, 0x64}` 双向；长形式长度
+    `200` → `{0x81, 0xC8}` 双向；`0x80` 不定长 → `LENGTH_OVERFLOW`
+    （CER / BER constructed 后续 sub-task 处理）；
+  - PER 约束 INTEGER(0..7) value 5 → `0xA0` 双向；PER OCTET STRING
+    `[0x11,0x22,0x33]` → `{0x03, 0x11, 0x22, 0x33}`；PER BIT STRING 8-bit
+    value `0xA5` → `{0xA5}`；
+  - JER writer: 拼出 `{"name":"Alice"}`；XER writer 满 cap 时再 put
+    报 `LENGTH_OVERFLOW`。
+- Release ctest **345/345** 通过（+1：Asn1CRuntimeSmoke）；Sanitizer 构建
+  (ASan+UBSan) **345/345** 通过，零 ASan/UBSan 报错。
+- sub-task 3+ 待办：`src/codegen/emit_c/*` emitter + CLI `--lang c` +
+  `EmitOptions::lang` + 全 fixture 编译门禁 + P1-3 oracle 复用（`--lang c`
+  与 `--lang cpp` 同一 oracle 字节级一致）。子任务清单见
+  [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c)。
+
 **P3-1 — 前端并行分析（`--parallel <N>`，declare + resolve 并行，diagnostics 字节级可重现）**
 - 设计：`Analyzer::analyze(modules, parallelism = 0)` 新增 parallelism
   参数；`0`（默认）= 串行 baseline（保持现状，CI 金标对验强制），`>0`
@@ -255,4 +306,4 @@
 | 46 | 增量代码生成（P2-3） | ✅ 已完成（2026-10-16，缓存就位 + 7 项单元 + 3 项 CLI 门禁） |
 | 47 | 前端并行分析（P3-1） | ✅ 已完成（2026-10-17，`--parallel <N>` + declare/resolve 并行 + 11 项门禁；`lower_pass` 串行 deferred；commit `5856565`） |
 | 48 | 3GPP 协议消息级金标准向量对验（P1-3） | ⏳ 已规划，未排期；子任务清单见 [todo.md](todo.md#p1-3--3gpp-协议消息级金标准向量对验) |
-| 49 | C 语言代码生成器（P2-4） | ⏳ 已规划，未排期；`asn1cxx --lang c` + `asn1/c_runtime/*` 平行 runtime + `src/codegen/emit_c/*`；与 `--lang cpp` 复用 P1-3 oracle 字节一致；估时 ~43 h / 5-6 工作日；子任务清单见 [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c) |
+| 49 | C 语言代码生成器（P2-4） | 🟡 sub-task 1（`include/asn1/c_runtime/*` 头骨架 + `-fsyntax-only` 门禁，commit `c137142`）+ sub-task 2（`src/c_runtime/*.c` 纯 C11 实现 + `asn1::c_runtime` 静态库 + `Asn1CRuntimeSmoke` 链接+运行门禁）已落地；ctest **345/345**。sub-task 3+（`src/codegen/emit_c/*` + CLI `--lang c` + 全 fixture 编译门禁 + P1-3 oracle 复用）未排期；目标字节输出与 `--lang cpp` 逐字节一致（复用 P1-3 oracle）；估时 ~43 h / 5-6 工作日；子任务清单见 [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c) |

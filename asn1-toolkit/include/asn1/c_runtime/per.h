@@ -43,6 +43,7 @@
 #include <asn1/c_runtime/asn1_c_common.h>
 #include <asn1/c_runtime/bigint.h>
 #include <asn1/c_runtime/bit_string.h>
+#include <asn1/c_runtime/bit_io.h>
 #include <asn1/c_runtime/byte_io.h>
 
 #ifdef __cplusplus

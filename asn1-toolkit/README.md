@@ -5,8 +5,8 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 
 | 项目 | 值 |
 |------|-----|
-| 当前阶段 | Phase 47 — 前端并行分析（`asn1cxx --parallel <N>`，`declare_pass` + `resolve_pass` 按模块并行；详见 [docs/status.md](docs/status.md)） |
-| 测试状态 | 344/344 通过（Release + ASan/UBSan 双构建门禁） |
+| 当前阶段 | Phase 49 — C 语言代码生成器 P2-4（sub-task 1 `include/asn1/c_runtime/*` 头骨架 + sub-task 2 `src/c_runtime/*.c` 纯 C11 runtime + `Asn1CRuntimeSmoke` 链接+运行门禁；详见 [docs/status.md](docs/status.md)） |
+| 测试状态 | 345/345 通过（Release + ASan/UBSan 双构建门禁） |
 | 编码规则 | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI |
 | 语言/构建 | C++17（GCC / Clang；MSVC 本地可用）+ CMake 3.16+ |
 | 依赖 | 零第三方运行时依赖（BigInt 自研，无 Boost、无 multiprecision） |
@@ -40,7 +40,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# 2. 运行全部测试（预期 344/344 通过）
+# 2. 运行全部测试（预期 345/345 通过）
 ctest --test-dir build --output-on-failure
 
 # 3. 解析一个 ASN.1 文件并查看 IR
