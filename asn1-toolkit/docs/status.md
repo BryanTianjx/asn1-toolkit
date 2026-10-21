@@ -1,12 +1,21 @@
 # 项目状态
 
-当前状态的唯一权威。状态截至 **2026-10-17**。历史变更见
+当前状态的唯一权威。状态截至 **2026-10-20**。历史变更见
 [changelog.md](changelog.md)。已排期 / 未排期待办见
 [todo.md](todo.md)。
 
 ## 当前阶段
 
 **Phase 49 — C 语言代码生成器（P2-4，sub-task 1 + sub-task 2 已落地；sub-task 3+ 未排期）。**
+
+- **2026-10-20，REV-01..03**：C11 BitWriter 整次预留容量并传播 OOM/溢出；
+  BigInt 临时解析成功后提交，传播分配失败与 limb 限制；新增 C 状态码 8/9
+  （原 0..7 不变），核对并修正原语输出/所有权契约及失败清理。
+  `Asn1CRuntimeFailureContracts` 含 424 个内部检查；Release 与 ASan+UBSan
+  全量 CTest 均 **346/346** 通过。生命周期说明见
+  [c-runtime-contracts.md](c-runtime-contracts.md)，命令与门禁证据见
+  [REV-01..03 验收记录](rev01-03-validation.md)。第二批 PER 线路修复仍待办，
+  此条不代表 C runtime 的标准覆盖或 C emitter 已完成。
 
 - **P2-4 sub-task 1 + 2（已完成）**：`include/asn1/c_runtime/*` 头骨架
   + `src/c_runtime/*.c` 纯 C11 实现 + `asn1::c_runtime` 静态库 +
@@ -79,8 +88,8 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **345/345 通过**，0 失败（含 P3-1 前端并行 10 项单元测试 + 1 项 CLI 字节相等门禁；P2-3 内容哈希缓存 8 项单元测试 + 5 项 CLI 冒烟；P2-4 sub-task 2 C runtime 链接+运行 1 项烟测 `Asn1CRuntimeSmoke`） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **345/345 通过**，0 失败，零 ASan/UBSan 报错 |
+| Release 构建 ctest | **346/346 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；含既有 345 项及新增 `Asn1CRuntimeFailureContracts`，内部 424 个检查） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **346/346 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态
@@ -94,6 +103,11 @@
 | 三大 3GPP fixture emit 产物编译 | RRC/LPP/S1AP 全量 emit 产物作为 CMake 静态库编译通过（编译的是真实定义，非 stub） |
 
 ## 金标准差分验证状态
+
+2026-10-20 复测说明：历史 7 fixture × 12 selector 语法矩阵 **84/84** 通过。
+该列表中的 `per` 是 UPER|APER 组合别名，不能计为第十二个独立入口；JERI
+独立生成与矩阵口径仍待 REV-15/16 修正。以上历史矩阵不等于 12 个独立入口
+完整合规。既有 oracle 来源向量随本次双构建回归通过，未重新生成外部向量。
 
 | 向量套 | Oracle | 状态 |
 |--------|--------|------|

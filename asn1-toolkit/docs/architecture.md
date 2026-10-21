@@ -101,42 +101,42 @@ C++17，`CMAKE_CXX_STANDARD_REQUIRED ON`，扩展关闭；CMake 3.16+。每个�
 
 ### 编译器链（静态库，不链接运行时）
 
-| 目标 | 职责 |
-|------|------|
-| `asn1_common`（INTERFACE） | `Result<T>`、`Span<T>` |
-| `asn1_support` | 源码位置、诊断、SourceFile |
-| `asn1_ast` | AST 节点与打印 |
-| `asn1_frontend` | lexer + parser（含 parser_ioc） |
-| `asn1_ir` | Type IR 与打印 |
-| `asn1_constraints` | 约束归一化 |
-| `asn1_semantic` | 符号表、分析器 |
-| `asn1_codegen` | C++ 发射器（按 codec 家族拆分的 7 个源文件，见上） |
+| 目标                       | 职责                               |
+| ------------------------ | -------------------------------- |
+| `asn1_common`（INTERFACE） | `Result<T>`、`Span<T>`            |
+| `asn1_support`           | 源码位置、诊断、SourceFile               |
+| `asn1_ast`               | AST 节点与打印                        |
+| `asn1_frontend`          | lexer + parser（含 parser_ioc）     |
+| `asn1_ir`                | Type IR 与打印                      |
+| `asn1_constraints`       | 约束归一化                            |
+| `asn1_semantic`          | 符号表、分析器                          |
+| `asn1_codegen`           | C++ 发射器（按 codec 家族拆分的 7 个源文件，见上） |
 
 ### 运行时（静态库）
 
-| 目标 | 职责 |
-|------|------|
+| 目标             | 职责                                                   |
+| -------------- | ---------------------------------------------------- |
 | `asn1_runtime` | ByteReader/ByteWriter、BitReader/BitWriter、BigInteger |
-| `asn1_ber` | BER TLV + 原语/构造编解码 |
-| `asn1_der` | DER 规范编解码（依赖 ber） |
-| `asn1_cer` | CER 规范策略层（X.690，依赖 ber） |
-| `asn1_per` | PER 原语 + 类型编解码（UPER/APER 共享） |
-| `asn1_oer` | OER（X.696 BASIC-OER） |
-| `asn1_coer` | COER 规范编解码（依赖 oer） |
-| `asn1_xer` | BASIC-XER XML 树 + 类型编解码 |
-| `asn1_cxer` | CXER 规范编解码（依赖 xer） |
-| `asn1_exer` | E-XER 编码指令效果 |
-| `asn1_jer` | BASIC-JER JSON 树 + 类型编解码 |
-| `asn1_jeri` | JER 编码指令效果（依赖 jer） |
+| `asn1_ber`     | BER TLV + 原语/构造编解码                                   |
+| `asn1_der`     | DER 规范编解码（依赖 ber）                                    |
+| `asn1_cer`     | CER 规范策略层（X.690，依赖 ber）                              |
+| `asn1_per`     | PER 原语 + 类型编解码（UPER/APER 共享）                         |
+| `asn1_oer`     | OER（X.696 BASIC-OER）                                 |
+| `asn1_coer`    | COER 规范编解码（依赖 oer）                                   |
+| `asn1_xer`     | BASIC-XER XML 树 + 类型编解码                              |
+| `asn1_cxer`    | CXER 规范编解码（依赖 xer）                                   |
+| `asn1_exer`    | E-XER 编码指令效果                                         |
+| `asn1_jer`     | BASIC-JER JSON 树 + 类型编解码                             |
+| `asn1_jeri`    | JER 编码指令效果（依赖 jer）                                   |
 
 ### 可执行与门禁目标
 
-| 目标 | 说明 |
-|------|------|
-| `asn1cxx` | 编译器驱动 |
-| `asn1_<fixture>_compile` | fixture emit 产物静态库编译门（RRC/LPP/S1AP/tlv_oer_golden/tlv_golden/cer_golden/rrc_slice 等） |
-| `asn1_split_lpp_split` / `asn1_split_s1ap_split` | `--emit-split` 分文件产物编译门（UPER） |
-| 测试可执行（31 个） | 清单见 [development.md](development.md#测试体系) |
+| 目标                                               | 说明                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `asn1cxx`                                        | 编译器驱动                                                                                |
+| `asn1_<fixture>_compile`                         | fixture emit 产物静态库编译门（RRC/LPP/S1AP/tlv_oer_golden/tlv_golden/cer_golden/rrc_slice 等） |
+| `asn1_split_lpp_split` / `asn1_split_s1ap_split` | `--emit-split` 分文件产物编译门（UPER）                                                        |
+| 测试可执行（31 个）                                      | 清单见 [development.md](development.md#测试体系)                                            |
 
 链接规则：`asn1cxx` 只链编译链；`asn1_codegen` 不链运行时（只打印
 `asn1::per::...` 调用）；生成的 TU 与编解码测试才链 `asn1_ber` / `asn1_der` /
@@ -286,15 +286,15 @@ optional 为 null）、NAME、OBJECT（SET OF 键值为 JSON 对象）、TEXT、
 
 ### 生成类型映射
 
-| ASN.1 | C++ |
-|-------|-----|
-| OPTIONAL | `std::optional` |
-| DEFAULT | 普通值（位清零时解码器填默认值） |
-| SEQUENCE OF / SET OF | `std::vector` |
-| 字符串 | `std::string` |
-| OBJECT IDENTIFIER | `asn1::ObjectIdentifier` |
-| 非约束 INTEGER | `asn1::BigInteger`（>64 位时）；约束整数按范围定宽 |
-| 对象类 `&Value` 开放类型 | byte vector（表约束类型化时提供 `decoded_<field>` 视图） |
+| ASN.1                | C++                                         |
+| -------------------- | ------------------------------------------- |
+| OPTIONAL             | `std::optional`                             |
+| DEFAULT              | 普通值（位清零时解码器填默认值）                            |
+| SEQUENCE OF / SET OF | `std::vector`                               |
+| 字符串                  | `std::string`                               |
+| OBJECT IDENTIFIER    | `asn1::ObjectIdentifier`                    |
+| 非约束 INTEGER          | `asn1::BigInteger`（>64 位时）；约束整数按范围定宽        |
+| 对象类 `&Value` 开放类型    | byte vector（表约束类型化时提供 `decoded_<field>` 视图） |
 
 表约束类型化开放类型（table-constraint typed IE）：条目只挂在开放类型字段上
 （`&criticality` 这类固定类型字段保持原类型）；解码按 governor id 派发到

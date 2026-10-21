@@ -48,7 +48,10 @@ asn1_status_t asn1_jer_writer_init(asn1_jer_writer_t* w,
 asn1_status_t asn1_jer_writer_puts(asn1_jer_writer_t* w, const char* s);
 asn1_status_t asn1_jer_writer_printf(asn1_jer_writer_t* w, const char* fmt, ...);
 
-/* Decode from a borrowed (or owned) buffer. */
+/* Borrowed input only; caller maintains its lifetime. init validates
+   NULL/length, leaving r unchanged on failure; not a full JSON parser.
+   Writer puts/printf retain used and the committed prefix on failure;
+   printf may overwrite the uncommitted tail. See c-runtime-contracts.md. */
 typedef struct {
     const char* data;
     size_t pos;

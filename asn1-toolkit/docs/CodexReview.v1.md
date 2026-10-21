@@ -1,0 +1,728 @@
+# 总览摘要
+
+**结论：总体分层值得保留，但当前证据不足以支持“12 种规则完整覆盖、全链路无业务异常、C11 runtime 已按标准字节形式验证”的表述。建议先修复 C runtime 的错误成功返回、内存写入及 PER 字节错误，再扩展 C emitter。**
+
+本次评审读取了实际源码、CMake、测试和设计文档，未修改仓库。以下“已确认”表示能从代码路径直接确定；“风险”表示仍需针对性测试确认。当前环境 PATH 中缺少 GCC/Clang，**未重新执行 Release、ASan/UBSan 或 345 项测试**；345/345 是仓库记录，不是本次复测结论。
+
+| 维度             | 评审分数 | 判断                              |
+| -------------- | ---- | ------------------------------- |
+| 编译器与运行时分层      | 8/10 | 依赖方向清楚，未见需要推翻的架构硬伤              |
+| 标准覆盖证据         | 5/10 | 有真实能力，但“支持”混用了解析、生成、编译和互操作四种口径  |
+| C++ 错误模型执行     | 5/10 | `Result<T>` 方向正确，实际仍存在业务异常和吞错路径 |
+| 构建与门禁          | 6/10 | 基础扎实，但 codec 枚举、链接验证、跨编译器支持有缺口  |
+| 当前 C11 runtime | 3/10 | 原型基础已建立，已有实现中存在错误字节及失败返回成功的问题   |
+
+评分是本次工程判断，不代表标准认证。
+
+**最大三个风险**
+
+1. **C runtime 存在静默数据错误及内存写入风险**：BigInt 忽略扩容失败、PER INTEGER 符号错误、位拷贝尾位错误、扩容失败后仍可能复制。
+2. **标准覆盖和门禁口径失真**：12 codec 列表把 `per` 组合别名计入，却没有 `jeri`；部分支持仅达到 runtime helper 层。
+3. **错误模型没有贯彻到编译器和生成代码**：显式 `throw`、`std::stoll`、抛异常 filesystem API、解析失败后继续执行均可见。
+
+**最大三个架构亮点**
+
+1. AST、语义、IR、codegen 与 runtime 的依赖方向合理；生成代码承担运行时调用。
+2. PER 共享核心及 DER/COER/CXER 策略化方向正确，避免了家族实现分叉。
+3. 已建立真实电信 fixture、生成代码编译门禁及独立 oracle 差分基础，明显优于仅做自身 round-trip。
+
+---
+
+# 1. ASN.1 标准覆盖核查
+
+## 1.1 【重要】标准覆盖缺口／文档：标准归属和“12 codec”需要校正口径
+
+**问题／观察**
+
+X.690 只对应 BER、CER、DER。PER 属于 X.691，XER 家族属于 X.693，OER/COER 属于 X.696，JER 属于 X.697。信息对象、约束、参数化分别还涉及 X.681、X.682、X.683。
+
+另外，`JERI` 可以保留为项目既定功能名，但当前源码将其描述成 **“X.697 — Canonical JSON Encoding Rules (JERI)”**，这个标准归属有误。X.697 包含 JER encoding instructions，不应把项目名直接解释为标准定义的 canonical JSON 规则。
+
+依据：[X.690](https://www.itu.int/rec/T-REC-X.690/en)、[X.691](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-X.691-202102-I%21%21PDF-E&lang=e&type=items)、[X.693](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-X.693-202102-I%21%21PDF-E&lang=e&type=items)、[X.696](https://www.itu.int/rec/T-REC-X.696/_page.print)、[X.697 目录](https://www.itu.int/dms_pubrec/itu-t/rec/x/T-REC-X.697-202102-I!!TOC-HTM-E.htm)。
+
+**改进方案**
+
+保留固定 12 个产品入口，但给每个入口明确：
+
+- 标准名称、版本及勘误；
+- 项目入口名及别名；
+- 支持的 encoding instructions；
+- 编码、解码、严格检查分别达到什么程度。
+
+修正 [JERI 源码说明 (line 16)](D:/H/ACT/asn1-toolkit/src/runtime/jeri/codec.cpp:16)，不要将 JSON 排序或稳定输出自行等同于 X.697 规范化。
+
+## 1.2 【重要】已确认缺口：12 codec 的生成能力尚未闭合
+
+**问题／观察**
+
+[CodecKind (line 44)](D:/H/ACT/asn1-toolkit/include/asn1/codegen/emit.hpp:44) 只有 **11 个独立位**，`Per = Aper | Uper`，没有 `Jeri`。CLI 同样没有 `jeri` 选项。
+
+因此，runtime 中存在 `asn1::jeri`，不等于能够生成第十二种入口的完整编解码代码。
+
+**理由**
+
+产品覆盖必须贯通：
+
+`CLI → 选项 → IR 指令语义 → emitter → runtime → 链接 → 独立验证`。
+
+**改进方案**
+
+按既定目标补齐 `Jeri` 的生成入口，或清楚记录当前只通过 JER 路径实现哪些指令效果。`per` 保持组合别名，不能作为第十二种独立规则计数。
+
+## 1.3 【重要】语法覆盖：关键结构已有基础，但“电信级支持”需要分层列证据
+
+**问题／观察**
+
+源码可见扩展组、表约束映射、JER/XER 指令效果、内容约束、RELATIVE-OID 等设计基础，不能简单断言这些结构缺失。但 README 罗列结构名称，尚不足以说明完整语义覆盖。
+
+| 已宣称结构                 | 需要补充的高价值核查                                        |
+| --------------------- | ------------------------------------------------- |
+| CLASS／信息对象            | `WITH SYNTAX` 可选组、字段默认值、对象集扩展、对象集运算、跨模块引用         |
+| 表约束                   | 组件关系路径、非紧邻 governor、未知 selector、重复 selector、开放对象集 |
+| 参数化                   | 类型／值／对象集实参、嵌套实例化、递归实例化、跨模块同名实参                    |
+| `[[...]]`             | 组存在位、组内 OPTIONAL/DEFAULT、未知组跳过、组编号及版本演进           |
+| INSTANCE OF           | useful object class、实际类型标识与开放值的对应关系               |
+| EXTERNAL／EMBEDDED PDV | 各 identification 分支及专用标签语义，不能只验证结构降低              |
+| REAL                  | binary/decimal 值模型、特殊值、表示范围和精度损失                  |
+| 大 INTEGER             | 有界、半约束、无约束、负数、超过 64 bit 的约束运算                     |
+
+**理由**
+
+X.680 系列中的“可解析”与“能保持语义并正确编码”是不同能力。
+
+**改进方案**
+
+为每项分别标注 `parse / analyze / IR / emit / runtime / oracle`。暂未支持的语义在语义阶段明确拒绝，避免靠近似降低生成看似可用的代码。
+
+## 1.4 【重要】标准覆盖风险：仍需核查的高频与长尾结构
+
+**问题／观察**
+
+当前 [IR 类型清单 (line 135)](D:/H/ACT/asn1-toolkit/include/asn1/ir/type.hpp:135) 不能直接证明覆盖以下完整语义：
+
+- `COMPONENTS OF`、选择类型、自动标签与显式标签混合；
+- 约束并、交、差集以及非连续集合；
+- `FROM` 字符表与字符计数；
+- `WITH COMPONENT(S)`、`PATTERN`、用户定义约束；
+- `CONTAINING`／`ENCODED BY` 的实际内部编码规则；
+- OID-IRI、RELATIVE-OID-IRI、TIME、DATE、TIME-OF-DAY、DATE-TIME、DURATION 等。
+
+其中后几项是**覆盖待核查项**，不是仅凭缺少独立 IR 枚举就能判定未实现。
+
+**改进方案**
+
+优先核查影响线路布局的约束和自动标签；长尾类型可明确列为尚未支持。对“接受语法但不执行约束”单列状态。
+
+## 1.5 【重要】已确认限制：REAL 支持不是完整 ASN.1 REAL 支持
+
+**问题／观察**
+
+[BER REAL 解码 (line 763)](D:/H/ACT/asn1-toolkit/src/runtime/ber/codec.cpp:763) 对非 base-2 二进制形式及长指数形式返回 `Unsupported`，解码结果使用 `double`。
+
+**理由**
+
+标准 REAL 值空间和合法表示大于 IEEE-754 `double`。当前是实现子集；架构能扩展，不代表现在已经覆盖。
+
+**改进方案**
+
+短期公布 REAL profile，补充合法但不支持的测试。中长期若目标要求保真，增加 decimal/binary 精确表示，保留 `double` 便利 API；不引入外部 BigInt 依赖。
+
+## 1.6 【重要】各编码规则的重点边界与当前判断
+
+下表中的“核查”均为测试要求，不能视为已经发现对应实现缺陷。
+
+| 入口        | 必须核查的标准边界                                                                | 当前判断及落地方案                                             |
+| --------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
+| **BER**   | constructed string、嵌套 indefinite、EOC 层级、长 tag/length、非最短但合法表示            | 有实现基础；源码存在嵌套 indefinite 辅助路径限制。逐调用点标明受限范围，补合法替代表示解码向量 |
+| **DER**   | SET 与 SET OF 排序区别、DEFAULT 省略、INTEGER 最短形式、BOOLEAN、BIT STRING、时间及 REAL    | 策略架构合理；增加“合法 BER、非法 DER”的拒绝测试                         |
+| **CER**   | constructed indefinite、字符串 1000-octet 分段、BIT STRING unused-bits octet、排序 | 已有专项测试是亮点；补 999/1000/1001、分片结束、跨字符边界及嵌套测试             |
+| **UPER**  | 约束可见性、非连续约束集合、长度分片、扩展组、开放类型、位长度                                          | C++ 有差分基础；C 实现已有具体缺陷，见第 7 章                           |
+| **APER**  | 不同范围触发的对齐、长度与开放类型对齐、填充位                                                  | C++ 参数化方向正确；C 尚无 variant 参数，当前不能宣称 APER 支持完成          |
+| **OER**   | 固定宽整数选择、无界整数、tag、choice、扩展 preamble、长度和 REAL                             | 有 oracle 基础；补跨宽度、扩展和开放类型向量                            |
+| **COER**  | 长度/整数最短形式、填充位、规范排序、DEFAULT                                               | 有专门检查代码；需要规范违反输入及生成层组合测试                              |
+| **XER**   | 类型相关 XML 值规则、字符引用、Unicode、空元素、CHOICE、开放值                                 | XML parser 能解析不等于 XER 合规；按类型建立标准向量                    |
+| **CXER**  | 规范词法、空白、转义、类型相关值表达                                                       | 重序列化比较有帮助，但不能代替类型级规范检查；补 schema-aware 测试              |
+| **E-XER** | 指令继承/覆盖、ATTRIBUTE、UNTAGGED、LIST、USE-NIL、命名空间及其他指令                        | IR 有部分指令；已有属性解码吞错和异常路径，先修再扩大支持声明                      |
+| **JER**   | 大整数词法、REAL 特殊值/base10、BIT STRING 长度、Unicode、开放值、指令                       | 有 runtime 和生成基础；缺少完整外部互操作证据，补原文向量和独立对验                |
+| **JERI**  | 明确其项目语义及与 JER 指令的关系                                                      | runtime helper 存在，独立生成入口缺失；补入口和验证，修正文档标准名称            |
+
+BER/CER/DER 的规则关系依据 [X.690](https://www.itu.int/rec/T-REC-X.690/en)；其余边界分别应追踪 [X.691](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-X.691-202102-I%21%21PDF-E&lang=e&type=items)、[X.693](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-X.693-202102-I%21%21PDF-E&lang=e&type=items)、[X.696](https://www.itu.int/rec/T-REC-X.696/_page.print)、[X.697](https://www.itu.int/rec/T-REC-X.697/en) 的对应条文。
+
+## 1.7 【重要】组合生成：需要验证集合独立性
+
+**问题／观察**
+
+仓库已经记录组合生成可能通过传递 include 掩盖单 codec 缺口。此外还存在共享 helper 重名、位掩码分支漏选及规范策略串用风险。
+
+**改进方案**
+
+保留单 codec 门禁，增加：
+
+- `uper,ber`、`uper,aper`、`ber,der,cer`；
+- `oer,coer`、`xer,cxer,exer`、`jer,jeri`；
+- 全集合的实际链接和调用。
+
+校验同一 codec 在单独与组合生成时线路字节一致；选项顺序及重复项不改变结果。
+
+---
+
+# 2. 整体架构与模块分层
+
+## 2.1 【优化】架构观察：当前依赖方向正确，但需要自动防回归
+
+**问题／观察**
+
+抽查 CMake 和 include，未见 compiler 链链接 runtime，也未见 runtime 引入 AST/IR。PER/OER 复用 BER 的部分内容逻辑属于 runtime 内部依赖，不构成分层违规。
+
+**理由**
+
+同一个公共 include 根暴露了所有头，未来仍可能无意越界。
+
+**改进方案**
+
+增加自动门禁：
+
+- compiler 源文件禁止 include runtime；
+- runtime 禁止 include AST、IR、frontend、semantic；
+- 检查目标传递链接图；
+- compiler-only、runtime-only 独立消费者构建。
+
+不需要合并库或耦合 compiler 与 runtime。
+
+## 2.2 【重要】接口／文档：`.cpp` 唯一桥梁与 inline 模式需统一定义
+
+**问题／观察**
+
+全 inline 模式把运行时调用放进生成头文件，从字面上不可能同时满足“只有生成 `.cpp` 调用 runtime”。
+
+**改进方案**
+
+将铁律表述为：
+
+> 只有生成产物可以连接 ASN.1 类型与 runtime；普通／split 模式由生成 `.cpp` 承担，inline 模式由生成头文件承担。compiler 和 runtime 的源代码依赖隔离不变。
+
+这是澄清已有三种产物形态，不是放松分层。
+
+## 2.3 【重要】IR：避免把未理解语义转成宽松成功
+
+**问题／观察**
+
+[约束归一化 (line 307)](D:/H/ACT/asn1-toolkit/src/constraints/normalize.cpp:307) 对未支持形式会发 warning 并返回非静态可折叠状态。
+
+**理由**
+
+不能据此认定所有调用方都错误，但若后续把它解释成 unconstrained，PER/OER 布局或约束检查就可能变化。
+
+**改进方案**
+
+区分：
+
+1. 不影响编码布局、可以保留为运行期检查；
+2. 影响编码布局、必须完成归一化；
+3. 无法执行、必须报错。
+
+在 IR 中保存未支持原因和源位置，emitter 不得用默认值掩盖缺失语义。
+
+## 2.4 【优化】后端扩展：复用语义规划，不复用运行时实现依赖
+
+**问题／观察**
+
+新增 C emitter 若复制每个 C++ emitter 的约束、扩展组和开放类型决策，会形成两套语义。
+
+**改进方案**
+
+在 codegen 内提取语言无关的规划结果：字段次序、有效标签、presence、扩展组、selector 分派、约束类别及规范排序要求。C/C++ emitter 分别负责类型与调用表达。
+
+该层仅依赖 IR/common，禁止调用 runtime 算法。
+
+## 2.5 【重要】策略模型：规范要求必须覆盖生成层
+
+**问题／观察**
+
+DER/COER/CXER 的约束不全是原语属性，还涉及 DEFAULT、SET/SET OF、类型词法等结构语义。
+
+**改进方案**
+
+保留基础规则加策略模型；将策略要求贯通原语、结构编码、解码验证。测试重点放在多层嵌套和别名/开放类型穿透，不只验证策略 helper。
+
+---
+
+# 3. C++17、API 与错误模型
+
+## 3.1 【严重】已确认缺陷：业务异常仍存在于全链路
+
+**证据**
+
+- [SourceFile (line 60)](D:/H/ACT/asn1-toolkit/src/support/source_file.cpp:60)：打开失败显式抛 `runtime_error`。
+- [IR BigInt (line 97)](D:/H/ACT/asn1-toolkit/src/ir/type.cpp:97)：显式抛 `invalid_argument`。
+- [生成 E-XER 代码 (line 876)](D:/H/ACT/asn1-toolkit/src/codegen/emit_xer.cpp:876)：使用 `std::stoll`。
+- emitter/CLI 使用不带 `error_code` 的 filesystem API。
+- parser 多处 `catch (...)` 会同时捕获 `bad_alloc`。
+
+**理由**
+
+这直接偏离你规定的“业务错误使用 Result，仅 bad_alloc 可传播”，不是建议改变该模型。
+
+**改进方案**
+
+数字转换改用 C++17 `from_chars`，要求完整消费和范围检查；文件操作返回 `Result`，filesystem 使用错误码重载；删除吞掉 `bad_alloc` 的宽捕获。对标准库可能产生的 `length_error`、`system_error` 等，分别通过前置检查或窄边界转换处理。
+
+## 3.2 【严重】已确认缺陷：E-XER 属性解析失败被丢弃
+
+**问题／观察**
+
+[属性解码分支 (line 854)](D:/H/ACT/asn1-toolkit/src/codegen/emit_xer.cpp:854) 多处生成：
+
+```
+if (tmp) field = tmp.value();
+```
+
+BigInteger 转换失败也没有向上传递；整数分支则调用 `stoll`。
+
+**理由**
+
+缺少必填属性、非法属性值可能被当作默认初始化值继续处理。存在字段不等于字段值合法。
+
+**改进方案**
+
+按 mandatory/optional/default 区分“缺失”和“格式错误”，每个转换失败立即返回结构化错误。补缺属性、非法布尔、整数溢出、`12x`、非法大整数等生成代码运行测试。
+
+## 3.3 【重要】Result 接口：保持模型，明确访问契约
+
+**问题／观察**
+
+[Result (line 88)](D:/H/ACT/asn1-toolkit/include/asn1/common/result.hpp:88) 的 `value()/error()` 使用 `std::get`，违反前置条件会抛 `bad_variant_access`。
+
+**理由**
+
+这不是已证实业务路径必然抛异常，但公共 API 的访问行为需要与无业务异常承诺一致。
+
+**改进方案**
+
+增加 `[[nodiscard]]`；访问器使用断言和 `get_if` 明确程序员错误契约；补移动访问及生命周期说明。不要给会分配的函数机械加 `noexcept`。
+
+## 3.4 【重要】诊断接口：源位置与线路位置不能共用模糊 offset
+
+**问题／观察**
+
+`Error::offset` 注释为 byte 或 bit；runtime 本身没有 ASN.1 源文件位置。因此“诊断一律 file:line:column”覆盖范围过大。
+
+**改进方案**
+
+编译期诊断保留源范围及实例化上下文；运行期错误明确 byte/bit 单位、字段路径、codec 和错误码。生成代码可以附类型/字段路径，无需 runtime 引入 IR。
+
+## 3.5 【优化】C++17／ABI／产物形态
+
+**问题／观察**
+
+抽查未发现必须使用 C++20 的核心实现；`std::filesystem`、`variant` 属于 C++17。C 头注释提到 `std::span` 是文档错误，不能当作实际 C++20 泄漏证据。
+
+公共 C++ 接口包含 STL 类型，不能承诺跨不同标准库 ABI 稳定。
+
+**改进方案**
+
+- 公共头独立编译，并测试实际最低编译器版本。
+- 明确 C++ 消费者的工具链兼容范围。
+- inline：至少两个 TU 加真实链接，检查 helper、变量与类型定义 ODR。
+- out-of-line：真实调用所有导出函数，检查重复定义和未定义符号。
+- split：验证跨模块递归、清洗后的名称碰撞、增量依赖和失效文件清理。
+- `EmitOptions::emit_inline=true` 与 CLI 默认 false 的差异保留兼容性说明，避免 API 使用者意外得到另一种形态。
+
+---
+
+# 4. CMake 构建系统
+
+## 4.1 【重要】已确认缺陷：GNU 参数无条件施加，MSVC 兼容声明过强
+
+**证据**
+
+[CMake (line 29)](D:/H/ACT/asn1-toolkit/CMakeLists.txt:29) 全局添加 `-pipe -fno-plt`，sanitizer 同样直接使用 GNU 风格参数；C runtime 硬编码 `-std=c11`，fixture 硬编码 `-O1`。
+
+**理由**
+
+目标在 MSVC 上可配置，不等于这些参数构成受支持的 MSVC 构建。
+
+**改进方案**
+
+按编译器和平台添加 target-scoped 参数；C runtime 设置 `C_STANDARD 11`、`C_STANDARD_REQUIRED YES`、`C_EXTENSIONS OFF`，smoke 目标同样设置。MSVC sanitizer 单独声明能力，不能冒充完整 ASan+UBSan 门禁。
+
+## 4.2 【重要】最低版本风险：3.16 承诺需要真实验证
+
+**问题／观察**
+
+[FetchContent (line 10)](D:/H/ACT/asn1-toolkit/tests/CMakeLists.txt:10) 使用 `DOWNLOAD_EXTRACT_TIMESTAMP`，该选项是 CMake 3.24 新增。
+
+**理由**
+
+当前声明 3.16+，配置参数存在版本不匹配风险，不能只在新 CMake 上验证。[CMake 官方说明](https://cmake.org/cmake/help/v3.24/release/3.24.html)
+
+**改进方案**
+
+按版本条件传入该选项，或明确提高最低版本；在最低版本上跑离线配置门禁。提取时间策略也应考虑依赖更新后是否可靠触发重建。
+
+## 4.3 【优化】GoogleTest：离线设计已有，不应重复造轮子
+
+**问题／观察**
+
+已有 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 覆盖入口，关闭测试也可避免引入 GTest；这是合理基础。
+
+**改进方案**
+
+为下载包补 `URL_HASH`；可支持优先使用本地 `find_package(GTest CONFIG)`；增加断网配置测试。不要让安装后的 runtime 包依赖 GTest。
+
+## 4.4 【优化】库拆分和安装集成
+
+**问题／观察**
+
+当前根 CMake 实际声明 **20 个静态库目标，包含 C runtime**，README 的“14 个”已失真。库数量本身不是问题。
+
+另有 `INSTALL_INTERFACE`，但根 CMake 未见完整 install/export/package 配置。
+
+**改进方案**
+
+保留按职责拆分，补 install/export、版本配置及外部消费者测试。门禁若只生成静态库，仍需额外可执行链接验证，因为归档不要求解析全部未定义符号。
+
+## 4.5 【重要】交叉编译：区分宿主编译器工具与目标 runtime
+
+**问题／观察**
+
+自定义命令直接运行刚构建的 `asn1cxx`。交叉编译嵌入式目标时，该程序可能是目标架构二进制。
+
+**改进方案**
+
+提供宿主工具路径选项或两阶段构建：宿主 `asn1cxx` 生成，目标工具链编译 runtime 和生成产物。交叉测试避免默认执行目标程序。
+
+---
+
+# 5. 测试、验证与金标准体系
+
+## 5.1 【重要】已确认门禁缺口：矩阵缺 JERI，并存在错误链接映射
+
+**问题／观察**
+
+[单 codec 门禁表 (line 362)](D:/H/ACT/asn1-toolkit/tests/CMakeLists.txt:362) 包含 `uper, aper, per`，没有 `jeri`；同时出现 `der → per`、`cer → ber` 等不能证明所选 codec 最小依赖正确的映射。
+
+**理由**
+
+静态库编译通过无法验证最终 codec 符号解析。
+
+**改进方案**
+
+保留固定 **7 fixture × 12 实际入口** 门禁，补齐 JERI。由同一张能力表生成 CLI 列表、门禁枚举与 runtime 链接目标；代表性 fixture 必须执行真实链接和调用。
+
+## 5.2 【重要】oracle：应作为独立参照，不能作为无条件真值
+
+**问题／观察**
+
+仓库已经记录不同 oracle 的能力差异甚至崩溃。BER/PER/OER 的合法编码也不总是唯一；字节不同可能仍然合法。
+
+**改进方案**
+
+每个向量保存 schema、抽象值、工具版本/commit、选项、字节及标准依据。分开验证：
+
+- 规范规则的编码字节一致；
+- 非唯一编码的双方交叉解码；
+- 非规范输入的预期接受或拒绝；
+- oracle 分歧的条文仲裁。
+
+保留 asn1c/asn1tools 体系，但不把自身 round-trip 当独立差分。
+
+## 5.3 【重要】外部对标覆盖不完整
+
+**问题／观察**
+
+当前证据集中在 PER/APER、BER/DER/OER；CER 没有外部 oracle，COER、XML 家族和 JER/JERI 的同等级独立差分证据不足。
+
+**改进方案**
+
+CER 保留条文推导和 DER 值等价，额外建立违规向量集；其余家族按工具实际支持范围对验，缺工具处使用标准示例、人工独立推导和交叉解码。
+
+不能为了补矩阵，把某工具未支持的 codec 标成已验证。
+
+## 5.4 【重要】345 个测试的主要盲区
+
+**问题／观察**
+
+测试数量不能说明覆盖了线路分支、失败原子性及资源边界。C smoke 中名为 bitstring round-trip 的子测试，实际仅检查编码结果。
+
+**改进方案**
+
+优先补充以下集合：
+
+| 集合      | 必测内容                                                     |
+| ------- | -------------------------------------------------------- |
+| 整数      | ±127/128/255/256、INT64_MIN/MAX、超过 64 bit、半约束和全域约束        |
+| PER 长度  | 127/128、16383/16384、32768、49152、65536、整片后的结束 determinant |
+| 位操作     | 0..7 起始偏移 × 0..17 位长度，特别是高低位不同的源字节                       |
+| BER/CER | 嵌套 indefinite、错误 EOC、1000-octet 分界、constructed string    |
+| 扩展      | 老 schema 解新消息、未知组、未知 selector、开放值保留及跳过                   |
+| 失败路径    | 每次分配失败、每个截断位置、输出是否被修改、是否泄漏                               |
+| 文本      | 非法 UTF-8、转义、代理项、重复成员、非法数字及尾随内容                           |
+
+增加 fuzzing 和资源限制测试；ASan/UBSan 继续保留，它们不会自动发现“合法内存上的错误线路字节”。
+
+---
+
+# 6. CLI、用户接口与文档
+
+## 6.1 【重要】已确认缺陷：`--parallel N` 没有限制实际并发数
+
+**问题／观察**
+
+[declare pass (line 1888)](D:/H/ACT/asn1-toolkit/src/semantic/analyzer.cpp:1888) 计算 `workers` 后未使用；declare/resolve 均按模块逐个 `std::async(std::launch::async, ...)`。
+
+**理由**
+
+`--parallel 1` 仍可能启动大量异步任务，既偏离参数契约，也可能引发资源耗尽和 `system_error`。
+
+**改进方案**
+
+采用有界任务调度或固定 worker，保留按模块索引合并诊断。测试应测最大同时活跃任务数，不只测输出一致。
+
+CLI 数字解析改用完整消费的 `from_chars`；当前 `stol` 未检查尾部，`1x` 可被接受。
+
+## 6.2 【重要】已确认风险：缓存不能可靠区分生成器升级
+
+**问题／观察**
+
+[缓存选项 (line 1543)](D:/H/ACT/asn1-toolkit/src/codegen/emit_core.cpp:1543) 固定写入：
+
+```
+cli_version=asn1cxx-0.1.0
+```
+
+只要版本字符串不变，即使修复 emitter，旧产物仍可能命中缓存。输出哈希只能证明文件没变，不能证明它由当前生成器产生。
+
+**改进方案**
+
+加入明确的 generator/cache schema revision 或构建指纹；输入覆盖完整依赖及所有输出相关选项。对读取失败禁止命中，而不是用可重复的 sentinel 代表“不可读”。
+
+增加“换生成器实现但 ASN.1 不变”的失效测试。
+
+## 6.3 【优化】集成接口与产物管理
+
+**问题／观察**
+
+固定 `generated.hpp`、module 清洗命名、输出目录复用都会增加多协议集成成本。
+
+**改进方案**
+
+提供产物 manifest、可控 basename、稳定的输入到输出映射和 depfile；验证 namespace、basename、模块名碰撞及 Windows 文件名约束。输出采用临时文件完成后替换，并处理 split 遗留文件及并发写入。
+
+结构化诊断输出适合 CI 和设备 SDK；错误码、字段路径应独立于可变人类文本。
+
+## 6.4 【重要】文档：修正过度承诺与已经过期的说明
+
+**已确认的问题**
+
+- “12 codec 全量门禁”与实际枚举不符；
+- “14 个静态库”与 CMake 不符；
+- “全链路无异常”与代码不符；
+- C common 仍写“只有骨架、链接无意义”；
+- C common 写 BER/DER/CER/OER 多字节整数统一 little-endian，属于错误指导；
+- `JERI = canonical JSON` 的标准名称错误；
+- C JER/XER reader 目前只初始化输入游标，不能据此称已实现 reader 解码能力。
+
+**改进方案**
+
+增加标准支持矩阵、资源上限、所有权、线程安全、ABI、未知扩展策略、错误稳定性、宿主/目标构建说明。许可证仍待定应作为发布就绪条件，但无需在本次代码评审中扩展成法律建议。
+
+---
+
+# 7. Phase49 C11 runtime 专项评审
+
+## 7.1 【严重】已确认缺陷：BigInt 扩容失败被吞掉
+
+**证据**
+
+[bigint_mul_add_u32 (line 85)](D:/H/ACT/asn1-toolkit/src/c_runtime/bigint.c:85) 返回 `void`，调用 `bigint_push_limb` 后忽略失败；十进制解析继续返回成功。
+
+**理由**
+
+内存不足或超过 limb 限制时，可能丢失进位并返回错误数值。这比明确失败更危险。
+
+**改进方案**
+
+内部算术全部返回状态，逐层传播；使用临时 BigInt 构造，成功后提交。增加分配故障注入和 limb 上限边界测试。
+
+## 7.2 【严重】已确认缺陷：位写入快路径未可靠处理扩容失败
+
+**证据**
+
+[bit_writer_ensure (line 83)](D:/H/ACT/asn1-toolkit/src/c_runtime/bit_io.c:83) 返回 `void`；`put_bits_from_bytes` 在调用后直接 `memcpy`。
+
+**理由**
+
+扩容失败后，目标可能为空或容量不足，形成越界写入风险。当前普通 smoke 不会稳定覆盖 OOM。
+
+**改进方案**
+
+ensure 返回状态，所有调用点检查；扩容前检查加法、位转字节及容量倍增溢出。以 `cap-used` 等形式进行安全边界判断，失败时不推进写入位置。
+
+## 7.3 【严重】已确认缺陷：非整字节尾位取错
+
+**证据**
+
+[尾位快路径 (line 193)](D:/H/ACT/asn1-toolkit/src/c_runtime/bit_io.c:193) 使用：
+
+```
+(bytes.data[whole] & mask_bits(nbits)) << (8u - nbits)
+```
+
+**理由**
+
+它取源字节低位；同函数慢路径按 MSB-first 读取。源 `0xA0` 写 3 bit，预期是 `101`，当前快路径会取到 `000`。
+
+**改进方案**
+
+统一 MSB-first 位切片语义，取源字节高位；用同一个慢速参考算法比较所有起始偏移与尾位长度。源不足时必须报错，不能少写后仍返回 `ASN1_OK`。
+
+## 7.4 【严重】已确认缺陷：无约束 INTEGER 使用幅值而不是有符号补码
+
+**证据**
+
+[PER INTEGER (line 240)](D:/H/ACT/asn1-toolkit/src/c_runtime/per.c:240) 编码调用无符号幅值序列化，负数返回 Unsupported；解码则把输入直接当正幅值。
+
+**可直接推导的错误**
+
+| 抽象值／输入        | 标准要求       | 当前路径         |
+| ------------- | ---------- | ------------ |
+| INTEGER `128` | 内容 `00 80` | 幅值输出 `80`    |
+| 输入 `01 FF`    | 无约束整数 `-1` | 按正幅值得到 `255` |
+
+**理由**
+
+显式拒绝未实现负数属于限制；把合法负数成功解成正数属于实现缺陷。
+
+**改进方案**
+
+增加明确区分的 signed two’s-complement 与 unsigned magnitude API；补正数符号保护字节、负数最短补码和零长度非法输入验证。复用已有 oracle 向量，不通过 C++ 包装实现。
+
+## 7.5 【严重】已确认缺陷：PER 长度分片只实现了片段标记
+
+**证据**
+
+[长度编码及 OCTET STRING (line 489)](D:/H/ACT/asn1-toolkit/src/c_runtime/per.c:489) 对大长度写出 `C1..C4`，随后直接写完整 payload，没有按片段循环，也没有相应结束 determinant。
+
+**理由**
+
+片段长度标记不是总长度的替代。16385 字节不能写一个 16384 标记后直接附全部内容；整片长度也需正确结束片段链。规则依据 [X.691](https://www.itu.int/rec/dologin_pub.asp?id=T-REC-X.691-202102-I%21%21PDF-E&lang=e&type=items)。
+
+**改进方案**
+
+将“单个长度 determinant”和“片段链”明确拆开，由内容层交错读写长度与片段。完成前对未支持长度返回 Unsupported，不能成功生成错误线路数据。
+
+## 7.6 【重要】已确认缺陷：BIT STRING 接口接受变长范围，实现却按定长处理
+
+**证据**
+
+[BIT STRING (line 413)](D:/H/ACT/asn1-toolkit/src/c_runtime/per.c:413) 编码只校验上下界后写内容，解码直接读取 `range->upper` 位，没有处理实际长度。
+
+**理由**
+
+对 `SIZE(1..16)` 等范围，这不是可互操作实现。
+
+**改进方案**
+
+当前阶段先明确拒绝 `lower != upper`；随后补约束长度、扩展和分片。写入前验证 `bit_length` 与容量一致，不能用声明长度伪造源 view。
+
+## 7.7 【重要】接口／架构：C PER 现在就应预留 Variant
+
+**问题／观察**
+
+`per.h` 没有 variant 参数；实现注释计划通过 `aper_` shim 扩展。
+
+**理由**
+
+若 shim 最终只是传入 Aligned，可以成立；若复制算法，就违反共享 PER 核心的硬约束。
+
+**改进方案**
+
+新增统一的 `asn1_per_variant_t` 或上下文，由同一核心实现处理。已有函数可保留为 UPER 便利包装。未完成 APER 时明确返回 Unsupported，不生成假成功入口。
+
+## 7.8 【重要】C 错误模型：状态码方向正确，需补所有权与失败契约
+
+**问题／观察**
+
+`asn1_status_t + out` 是 C 对 `Result<T>` 的合理映射，但当前没有独立 OOM 状态，分配失败常映射为 LengthOverflow。
+
+common 还承诺“失败不修改 out”，而 BIT STRING 解码先 resize、后读取，截断时可能已修改输出。
+
+**改进方案**
+
+- 增加明确 OOM/资源限制状态；
+- 规定输出对象是未初始化、已初始化还是可复用；
+- 临时构造成功后提交，或准确声明失败后的状态；
+- 明确 malloc 结果由谁释放，必要时提供匹配的 runtime free API；
+- 提供可选错误上下文：码、线路偏移、字段路径；
+- 资源限制覆盖总分配量、递归深度、元素数及 limb 数。
+
+C 不需要模仿模板，也不能因没有异常而容忍吞错。
+
+## 7.9 【重要】ABI／可移植性／重复逻辑
+
+**问题／观察**
+
+公共 BigInt 暴露 limb、容量和指针布局，C PER 又直接操作 limb，导致算术细节重复。
+
+**改进方案**
+
+短期固定结构布局与生命周期契约，检查 `CHAR_BIT == 8` 等必要前提；禁止按结构内存直接序列化。内部集中有符号字节转换，避免 codec 自行拼 limb。
+
+若需要稳定二进制 ABI，明确 enum、结构和编译选项兼容范围；可逐步引入 opaque handle 或带版本的公开结构，不必立即重构所有 C API。
+
+## 7.10 【重要】Smoke 门禁范围需要收紧表述
+
+**问题／观察**
+
+现有 smoke 有实际价值，但并未证明每个函数的成功/失败分支，更未证明 C JER/XER reader 能解析标准数据，也未覆盖 C11 全家族实现。
+
+**改进方案**
+
+保留 `Asn1CRuntimeSmoke` 作为最底层链接运行门禁，另外建立：
+
+1. C primitive 正反例；
+2. 分配失败及截断测试；
+3. C/C++ 双向对验；
+4. C 对独立 oracle；
+5. C emitter 落地后的 fixture 编译、链接和运行矩阵。
+
+未完成的 CER、OER 等属于明确延期项，不应要求当前子任务一次做完；**已有 API 成功返回错误结果则必须先修。**
+
+---
+
+# 8. 风险清单与优先级
+
+| 优先级 | 级别／类型      | 工作项                               | 验收条件                         |
+| --- | ---------- | --------------------------------- | ---------------------------- |
+| P0  | 【严重】内存安全   | ensure 失败后复制、容量溢出                 | 故障注入下无越界、无成功返回               |
+| P0  | 【严重】数据正确性  | BigInt 吞失败、INTEGER 补码、尾位错误        | 独立字节向量及故障测试通过                |
+| P0  | 【严重】标准合规   | PER 分片及变长 BIT STRING              | 支持范围正确；未支持范围明确拒绝             |
+| P0  | 【严重】错误模型   | E-XER 吞错、生成代码异常、业务 throw          | 非法输入返回 Result，bad_alloc 不被误吞 |
+| P1  | 【重要】门禁     | 12 入口口径、JERI、codec 链接映射           | 固定矩阵覆盖真实入口并实际链接              |
+| P1  | 【重要】生成可靠性  | 缓存版本失效、原子输出                       | 生成器升级不复用旧实现产物                |
+| P1  | 【重要】资源管理   | `--parallel N` 有界调度               | 实际并发不超过指定值                   |
+| P1  | 【重要】C API  | Variant、OOM、所有权、失败状态              | API 文档与实现、测试一致               |
+| P1  | 【重要】构建     | 编译器条件、C11 属性、宿主工具                 | GCC/Clang/MSVC 支持口径可验证       |
+| P2  | 【重要】高成本技术债 | 两个 emitter 重复语义、REAL profile、约束保真 | 规划层复用及明确支持矩阵                 |
+| P2  | 【优化】验证扩展   | 文本规则、COER、未知扩展、fuzz               | 覆盖独立互操作和错误输入                 |
+| P3  | 【可选】风格／文档  | 自动生成注释、命名、过期计数                    | 不影响语义与兼容性                    |
+
+**阻断性判断：**未发现必须推翻整体分层的架构硬伤；发现足以阻断当前 C runtime“正确且可依赖”声明的实现缺陷。当前阶段最有效的动作是先让已暴露 API **正确成功或明确失败**，然后继续 C 后端扩展。
+
+---
+
+# 【不应该改动的设计清单】
+
+1. **保留 compiler 与 runtime 的严格隔离**，不通过共享 AST/IR 或链接 runtime 来减少 codegen 工作。
+2. **保留 `Result<T>`**，修复现有异常和吞错路径，不改用业务异常。
+3. **保留 UPER/APER 单核心加 Variant**，C 后端也遵守。
+4. **保留前端、语义、IR、codegen 分离**，不回到边解析边生成。
+5. **保留零第三方运行时依赖和自研 BigInt**，补正确性及资源失败处理。
+6. **保留固定 12 个产品入口目标**，校正 JERI 定义、别名计数及实现状态。
+7. **保留 DER=BER+策略、COER=OER+策略、CXER=XER+策略**，补齐策略的结构层覆盖。
+8. **保留三种产物形态**，用多 TU 和实际链接验证各自契约。
+9. **保留 7 fixture × 12 codec、Release 与 ASan/UBSan 门禁**，修正矩阵并补运行验证。
+10. **保留 asn1c/asn1tools 独立差分体系**，增加版本溯源、能力边界及分歧仲裁。
+11. **保留真正的纯 C11 runtime**，不以 C ABI 包装 C++ 实现替代既定目标。
+12. **保留 C 的状态码加输出参数模型**，完善所有权和失败状态，无需照搬 C++ 模板。

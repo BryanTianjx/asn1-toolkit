@@ -43,10 +43,13 @@ extern "C" {
 void asn1_bigint_init(asn1_bigint_t* b);
 void asn1_bigint_free(asn1_bigint_t* b);
 
-/* Parse an ASCII decimal string (with optional leading '-'). Mirrors
-   asn1::BigInt::from_decimal. Empty string, leading '+', internal
-   whitespace, and non-digit characters all yield
-   ASN1_ERR_INVALID_ARGUMENT. */
+/* Construct from ASCII decimal. With negative==0 a leading '+' or '-'
+   is accepted; with negative!=0 supply unsigned digits and force a
+   negative result (zero remains unsigned). No whitespace or other chars.
+   Destination must be new, zero-initialized, or previously freed, never
+   an owning live value. Failure leaves it unchanged; initialize to zero
+   first if unconditional free on failure is desired. OOM and limb limit
+   return OUT_OF_MEMORY and RESOURCE_LIMIT respectively. */
 asn1_status_t asn1_bigint_init_from_decimal(asn1_bigint_t* b,
                                             const char* text,
                                             int negative);
@@ -67,9 +70,10 @@ int asn1_bigint_sign(const asn1_bigint_t* b);
 asn1_status_t asn1_bigint_to_int64(const asn1_bigint_t* b,
                                    int64_t* out);
 
-/* Serialize as canonical BER length-prefixed octets (used by SET OF
-   sorting + canonical DER comparison; same wire format as the C++
-   runtime's `BigInteger::to_bytes`). Caller frees *out_buf with free(). */
+/* Serialize non-negative unsigned magnitude as minimal big-endian octets
+   (zero -> {0x00}). No BER tag/length or signed sign-protection byte.
+   Caller frees *out_buf with the same C allocator/CRT's free(). Failure
+   leaves *out_buf and *out_size unchanged. */
 asn1_status_t asn1_bigint_to_bytes(const asn1_bigint_t* b,
                                    uint8_t** out_buf,
                                    size_t* out_size);

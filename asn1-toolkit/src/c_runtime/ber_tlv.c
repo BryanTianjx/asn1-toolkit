@@ -69,7 +69,6 @@ asn1_status_t asn1_ber_tag_encode(uint8_t* out_buf, size_t out_cap,
   if (out_cap < 2u) {
     return ASN1_ERR_LENGTH_OVERFLOW;
   }
-  out_buf[0] = (uint8_t)(first | 0x1Fu);
   /* Base-128 high-tag-number form, MSB-first, no leading 0x80. */
   uint8_t stack[10];
   int sp = 0;
@@ -86,6 +85,7 @@ asn1_status_t asn1_ber_tag_encode(uint8_t* out_buf, size_t out_cap,
   if (out_cap < (size_t)(1 + sp)) {
     return ASN1_ERR_LENGTH_OVERFLOW;
   }
+  out_buf[0] = (uint8_t)(first | 0x1Fu);
   for (int i = 1; i <= sp; ++i) {
     out_buf[i] = stack[sp - i];
   }
@@ -96,19 +96,21 @@ asn1_status_t asn1_ber_tag_encode(uint8_t* out_buf, size_t out_cap,
 asn1_status_t asn1_ber_tag_decode(asn1_byte_view_t src,
                                   asn1_ber_tag_t* out_tag,
                                   size_t* out_bytes_consumed) {
-  if (!out_tag || !out_bytes_consumed) {
+  if (!out_tag || !out_bytes_consumed || (!src.data && src.size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (src.size < 1u || !src.data) {
     return ASN1_ERR_TRUNCATED;
   }
   const uint8_t first = src.data[0];
-  out_tag->cls = (uint8_t)((first >> 6) & 0x03u);
-  out_tag->constructed = (uint8_t)((first & 0x20u) != 0u);
+  asn1_ber_tag_t tmp;
+  tmp.cls = (uint8_t)((first >> 6) & 0x03u);
+  tmp.constructed = (uint8_t)((first & 0x20u) != 0u);
   const uint8_t low = (uint8_t)(first & 0x1Fu);
   if (low != 0x1Fu) {
-    out_tag->number = low;
+    tmp.number = low;
     *out_bytes_consumed = 1;
+    *out_tag = tmp;
     return ASN1_OK;
   }
   /* High-tag-number form. */
@@ -133,7 +135,8 @@ asn1_status_t asn1_ber_tag_decode(asn1_byte_view_t src,
       break;
     }
   }
-  out_tag->number = number;
+  tmp.number = number;
+  *out_tag = tmp;
   *out_bytes_consumed = i;
   return ASN1_OK;
 }
@@ -173,7 +176,7 @@ asn1_status_t asn1_ber_length_encode(uint8_t* out_buf, size_t out_cap,
 asn1_status_t asn1_ber_length_decode(asn1_byte_view_t src,
                                      size_t* out_length,
                                      size_t* out_bytes_consumed) {
-  if (!out_length || !out_bytes_consumed) {
+  if (!out_length || !out_bytes_consumed || (!src.data && src.size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (src.size < 1u || !src.data) {
@@ -189,9 +192,6 @@ asn1_status_t asn1_ber_length_decode(asn1_byte_view_t src,
   if ((first & 0x80u) == 0u) {
     *out_length = (size_t)first;
     *out_bytes_consumed = 1;
-    if (*out_length > (size_t)ASN1_MAX_STRING_BYTES) {
-      return ASN1_ERR_LENGTH_OVERFLOW;
-    }
     return ASN1_OK;
   }
   const uint8_t nbytes = (uint8_t)(first & 0x7Fu);
@@ -206,7 +206,7 @@ asn1_status_t asn1_ber_length_decode(asn1_byte_view_t src,
     value = (value << 8) | (size_t)src.data[1u + i];
   }
   if (value > (size_t)ASN1_MAX_STRING_BYTES) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_RESOURCE_LIMIT;
   }
   *out_length = value;
   *out_bytes_consumed = (size_t)(1u + nbytes);

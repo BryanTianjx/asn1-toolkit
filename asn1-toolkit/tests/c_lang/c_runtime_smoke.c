@@ -17,7 +17,7 @@
 
     Sub-task 1 only checked that every header parses under
     `gcc -std=c11 -fsyntax-only`. Sub-task 2 fills the bodies in
-    src/c_runtime/*.c, so the gate upgrades: link against
+    the C sources in src/c_runtime, so the gate upgrades: link against
     `asn1::c_runtime`, call every declared function with a sample
     input, and assert the round-trip. A failure here means a C-runtime
     body returns an unexpected status or produces bytes that don't

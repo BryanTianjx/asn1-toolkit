@@ -41,8 +41,13 @@
 
 ## 测试体系
 
-GoogleTest，一个可执行覆盖一个领域，全部注册进 CTest。当前共 **32 个测试
-可执行 / 332 个用例**（31 个历史领域 + 1 个 P2-3 新增 `asn1_emit_cache_tests`）。
+GoogleTest 按领域组织，纯 C 门禁使用独立驱动，全部注册进 CTest。
+当前数量与双构建结果以 [status.md](status.md) 为准。
+
+C11 的 `Asn1CRuntimeSmoke` 验证原语链接运行；
+`Asn1CRuntimeFailureContracts` 单独编译 C 源码并注入分配失败，验证输出、
+生命周期、资源上限及恢复路径。测试 hook 不进入生产库，契约见
+[c-runtime-contracts.md](c-runtime-contracts.md)。
 
 ### 编译器与基础
 

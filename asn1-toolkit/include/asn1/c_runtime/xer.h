@@ -52,6 +52,10 @@ typedef struct {
     size_t size;
 } asn1_xer_reader_t;
 
+/* Borrows data for its lifetime. NULL is allowed only with size zero.
+   init leaves r unchanged on error and does not parse XML. Writer puts
+   leaves used and the committed prefix unchanged on error. */
+
 asn1_status_t asn1_xer_reader_init(asn1_xer_reader_t* r,
                                    const char* data, size_t size);
 

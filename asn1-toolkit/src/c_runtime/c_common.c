@@ -34,6 +34,8 @@
 
 const char* asn1_status_name(asn1_status_t s) {
   switch (s) {
+    case ASN1_ERR_OUT_OF_MEMORY: return "ASN1_ERR_OUT_OF_MEMORY";
+    case ASN1_ERR_RESOURCE_LIMIT: return "ASN1_ERR_RESOURCE_LIMIT";
     case ASN1_OK: return "ASN1_OK";
     case ASN1_ERR_TRUNCATED: return "ASN1_ERR_TRUNCATED";
     case ASN1_ERR_TAG_MISMATCH: return "ASN1_ERR_TAG_MISMATCH";

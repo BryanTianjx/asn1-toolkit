@@ -41,15 +41,19 @@ extern "C" {
 #endif
 
 typedef struct {
-  uint8_t* bits;       /* owned; malloc/free; NULL when bit_length == 0 */
+  uint8_t* bits;       /* owned; malloc/free; empty values may retain storage */
   size_t   bit_length; /* valid bit count; 0 .. 8 * size_bytes(bits) */
   size_t   cap_bytes;  /* capacity of `bits` in bytes */
 } asn1_bitstring_t;
 
+/* init new/freed objects only; free initialized objects only (repeatable).
+   Public structs own their pointers: do not shallow-copy then free twice. */
 void asn1_bitstring_init(asn1_bitstring_t* s);
 void asn1_bitstring_free(asn1_bitstring_t* s);
 
-/* Allocate `bit_count` bits; bits are zero-initialized. */
+/* Resize an initialized object, retaining existing contents. Newly allocated
+   capacity is zeroed. Failure leaves the object unchanged; returns RESOURCE_LIMIT
+   above the configured cap and OUT_OF_MEMORY on allocation failure. */
 asn1_status_t asn1_bitstring_resize(asn1_bitstring_t* s, size_t bit_count);
 
 /* TODO sub-task 2: bitstring cmp, NamedBitList view (so the PER / BER

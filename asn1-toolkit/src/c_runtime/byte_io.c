@@ -33,6 +33,7 @@
 #include <asn1/c_runtime/byte_io.h>
 
 #include <stdlib.h>
+#include "alloc_internal.h"
 #include <string.h>
 
 struct asn1_byte_reader {
@@ -43,18 +44,18 @@ struct asn1_byte_reader {
 
 asn1_status_t asn1_byte_reader_create(asn1_byte_reader_t** out,
                                       asn1_byte_view_t src) {
-  if (!out) {
+  if (!out || (!src.data && src.size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   asn1_byte_reader_t* r = (asn1_byte_reader_t*)calloc(1, sizeof(*r));
   if (!r) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   if (src.size > 0 && src.data) {
     r->buf = (uint8_t*)malloc(src.size);
     if (!r->buf) {
       free(r);
-      return ASN1_ERR_LENGTH_OVERFLOW;
+      return ASN1_ERR_OUT_OF_MEMORY;
     }
     memcpy(r->buf, src.data, src.size);
     r->size = src.size;

@@ -48,6 +48,18 @@ add_executable(asn1_c_runtime_smoke c_lang/c_runtime_smoke.c)
 target_link_libraries(asn1_c_runtime_smoke PRIVATE asn1::c_runtime)
 add_test(NAME Asn1CRuntimeSmoke COMMAND asn1_c_runtime_smoke)
 
+# Fault injection is confined to a separate executable/source compilation.
+# Production asn1::c_runtime has no allocator configuration or test symbols.
+get_target_property(_c_runtime_sources asn1_c_runtime SOURCES)
+list(TRANSFORM _c_runtime_sources PREPEND "${PROJECT_SOURCE_DIR}/")
+add_executable(asn1_c_runtime_failure_tests
+  c_lang/c_runtime_failure_test.c ${_c_runtime_sources})
+target_include_directories(asn1_c_runtime_failure_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_definitions(asn1_c_runtime_failure_tests PRIVATE ASN1_C_RUNTIME_TEST_ALLOCATOR)
+set_target_properties(asn1_c_runtime_failure_tests PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+add_test(NAME Asn1CRuntimeFailureContracts COMMAND asn1_c_runtime_failure_tests)
+
 add_executable(asn1_constraints_tests constraints/constraints_test.cpp)
 target_link_libraries(asn1_constraints_tests PRIVATE asn1::frontend asn1::constraints asn1::semantic GTest::gtest_main)
 gtest_discover_tests(asn1_constraints_tests)

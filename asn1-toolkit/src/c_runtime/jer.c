@@ -57,7 +57,7 @@ asn1_status_t asn1_jer_writer_puts(asn1_jer_writer_t* w, const char* s) {
   /* Need room for n data bytes; trailing NUL written only if space
      remains (a caller-sized buffer that fits the string exactly does
      NOT get a NUL — matches the C++ runtime's writer behavior). */
-  if (w->used + n > w->cap) {
+  if (w->used > w->cap || n > w->cap - w->used) {
     return ASN1_ERR_LENGTH_OVERFLOW;
   }
   if (n > 0u) {
@@ -74,7 +74,7 @@ asn1_status_t asn1_jer_writer_printf(asn1_jer_writer_t* w, const char* fmt, ...)
   if (!w || !fmt) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
-  if (w->cap == 0u) {
+  if (w->used > w->cap || w->cap == 0u) {
     return ASN1_ERR_LENGTH_OVERFLOW;
   }
   const size_t avail = w->cap - w->used;
@@ -100,7 +100,7 @@ asn1_status_t asn1_jer_writer_printf(asn1_jer_writer_t* w, const char* fmt, ...)
 
 asn1_status_t asn1_jer_reader_init(asn1_jer_reader_t* r,
                                     const char* data, size_t size) {
-  if (!r) {
+  if (!r || (!data && size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   r->data = data;

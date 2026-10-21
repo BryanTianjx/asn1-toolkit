@@ -6,6 +6,29 @@
 
 ## 近期变更详录
 
+### 2026-10-20
+
+**REV-01..03 — 第一批 C11 内存安全与失败传播修正完成**
+
+- BitWriter 返回并传播扩容失败，整次操作预留容量，检查计数/倍增溢出；
+  take 失败保持有效位，clear/take 后复用不会保留旧 1 位。
+- BigInt 使用临时解析后提交，传播 OOM 与 limb 限制；C 错误码 0..7 保持，
+  新增 OutOfMemory=8、ResourceLimit=9；修正 PER/BER 原语失败输出与清理。
+- 新增测试专用 allocator 与 `Asn1CRuntimeFailureContracts`，生产库没有测试
+  hook；新增 [C11 契约](c-runtime-contracts.md) 与 [验收记录](rev01-03-validation.md)。
+- 实测：GCC 13.3，Release 与 ASan+UBSan 完整 CTest 各 **346/346**；故障测试
+  424 个内部检查；20 头 × C11/C++17 独立编译；历史 7×12 selector 语法矩阵
+  84/84。历史列表含 per 组合别名，JERI 缺口仍属 REV-15/16；第二批 PER
+  补码/分片/尾位语义未在本批完成。既有 oracle 向量已回归，未重新生成。
+
+**同日较早 — 创建修正计划（当时仅文档变更）**
+
+- 新增 [工程评审修正 TODO](remediation-todo.md)：REV-01..28，按 C11 安全与
+  PER 正确性、错误模型、缓存/并行/构建、标准覆盖及后端扩展分批执行；
+  每项包含证据性质、修改范围、依赖和验收，并提供逐项交给 AI 的提示模板。
+- 该计划创建步骤的验证口径：仅文档与相对链接核查；当时没有执行实现修复，也没有重新运行
+  Release、ASan/UBSan 或历史 345 项测试。原功能规划通过 todo.md 链接保留。
+
 ### 2026-10-17
 
 **P2-4 sub-task 2 — 纯 C11 runtime 实现（`src/c_runtime/*.c` + `asn1::c_runtime` 静态库）**

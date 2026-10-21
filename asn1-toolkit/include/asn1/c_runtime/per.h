@@ -88,6 +88,9 @@ asn1_status_t asn1_per_decode_int(asn1_bit_reader_t* r,
 
 asn1_status_t asn1_per_encode_unbounded_int(asn1_bit_writer_t* w,
                                             const asn1_bigint_t* value);
+/* Constructor output: new/zero/freed BigInt only; failure leaves output
+   unchanged but may advance r. Current wire subset is documented in
+   per.c; this lifetime contract does not add signed INTEGER support. */
 asn1_status_t asn1_per_decode_unbounded_int(asn1_bit_reader_t* r,
                                             asn1_bigint_t* out_value);
 
@@ -111,6 +114,8 @@ asn1_status_t asn1_per_decode_constrained_size(asn1_bit_reader_t* r,
 asn1_status_t asn1_per_encode_bitstring(asn1_bit_writer_t* w,
                                        const asn1_per_size_range_t* range,
                                        const asn1_bitstring_t* value);
+/* out_value must be initialized. Success replaces its owned storage;
+   failure leaves it unchanged, though r may advance. */
 asn1_status_t asn1_per_decode_bitstring(asn1_bit_reader_t* r,
                                        const asn1_per_size_range_t* range,
                                        asn1_bitstring_t* out_value);

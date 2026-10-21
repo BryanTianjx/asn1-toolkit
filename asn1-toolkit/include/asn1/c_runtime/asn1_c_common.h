@@ -30,13 +30,13 @@
         older C++ `Span<const uint8_t>` collapses into two args at call
         sites (mirrors what asn1c / libasn1 do).
       - all decode functions return an asn1_status_t (0 = Ok, non-zero =
-        the asn1_error_code_t value). Out parameters are populated only
-        when the return is ASN1_OK.
+        the asn1_status_t value). Output values are committed on success;
+        composite codec cursors may advance on failure. Lifecycle and
+        buffer exceptions: docs/c-runtime-contracts.md.
       - encode functions return bytes-written via `size_t*` out param
         (or, for fixed-size outputs, the buffer pointer).
-      - all multi-byte int fields are stored little-endian on the wire
-        for BER/DER/CER/OER families; PER families use MSB-first per
-        X.691 — see codec-specific headers.
+      - internal BigInt limbs use little-endian magnitude order; this
+        does not define wire endianness. See each codec's specification.
 
     Why a parallel runtime (not extern "C" wrapping the C++ one):
     the C++ runtime uses std::optional, std::span, std::variant, and a
@@ -61,12 +61,9 @@
       jer.h               — JER/JERI (port of jer/codec.hpp + jeri/codec.hpp)
       xer.h               — XER/EXER/CXER (port of xer/codec.hpp + exer/codec.hpp + cxer/codec.hpp)
 
-    Implementation arrives in P2-4 sub-task 2. Until then, every header
-    in asn1/c_runtime/ is a pure interface skeleton: types + function
-    declarations + doc comments. No function bodies — linking this
-    library today is not meaningful; the goal of sub-task 1 is to lock
-    down the surface area so sub-task 2 can fill it in without breaking
-    callers.
+    Implemented primitives live in src/c_runtime. This is not a promise
+    of complete codec support. Lifecycle, ownership and failure contracts
+    are documented in docs/c-runtime-contracts.md.
 
     Specification: ITU-T X.680 / X.681 / X.683 / X.690 / X.691 / X.692 /
                     X.693 / X.694 / X.695 / X.696 (any subset covered by
@@ -84,18 +81,20 @@ extern "C" {
 #endif
 
 /* --------------------------------------------------------------------- */
-/* Status / error codes (mirrors asn1::Error::Code)                      */
+/* Stable status codes: original 0..7 retained; C allocation errors appended. */
 /* --------------------------------------------------------------------- */
 
 typedef enum {
   ASN1_OK = 0,
   ASN1_ERR_TRUNCATED = 1,           /* X.690/X.691 input ran out before done */
   ASN1_ERR_TAG_MISMATCH = 2,        /* BER/DER/CER tag mismatch */
-  ASN1_ERR_LENGTH_OVERFLOW = 3,     /* BER/DER/CER length exceeds limits */
+  ASN1_ERR_LENGTH_OVERFLOW = 3,     /* representation/caller capacity overflow */
   ASN1_ERR_CONSTRAINT_VIOLATION = 4,/* X.680 subtype constraint failed */
   ASN1_ERR_NON_CANONICAL = 5,       /* CER strictness / DER canonical */
   ASN1_ERR_INVALID_ARGUMENT = 6,    /* NULL out param / bad size / etc */
   ASN1_ERR_UNSUPPORTED = 7,         /* feature not in C runtime (yet) */
+  ASN1_ERR_OUT_OF_MEMORY = 8,       /* allocator failed */
+  ASN1_ERR_RESOURCE_LIMIT = 9,      /* configured runtime limit exceeded */
 } asn1_status_t;
 
 /* Returns the human-readable name of a status code. Stable across

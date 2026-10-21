@@ -53,7 +53,7 @@ asn1_status_t asn1_xer_writer_puts(asn1_xer_writer_t* w, const char* s) {
   /* Need room for n data bytes; the trailing NUL is written only if
      space remains (a caller-sized buffer that fits the string exactly
      does NOT get a NUL — matches the C++ runtime's writer behavior). */
-  if (w->used + n > w->cap) {
+  if (w->used > w->cap || n > w->cap - w->used) {
     return ASN1_ERR_LENGTH_OVERFLOW;
   }
   if (n > 0u) {
@@ -68,7 +68,7 @@ asn1_status_t asn1_xer_writer_puts(asn1_xer_writer_t* w, const char* s) {
 
 asn1_status_t asn1_xer_reader_init(asn1_xer_reader_t* r,
                                     const char* data, size_t size) {
-  if (!r) {
+  if (!r || (!data && size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   r->data = data;

@@ -23,7 +23,10 @@
     Conventions (P2-4 sub-task 1 interface skeleton; bodies in sub-task 2):
 
       - all positions are bit offsets from the start of the buffer.
-      - put/get fail with ASN1_ERR_TRUNCATED when the buffer runs out.
+      - get returns TRUNCATED for insufficient input; allocation failure
+        returns OUT_OF_MEMORY, arithmetic overflow LENGTH_OVERFLOW.
+      - writer primitives pre-reserve the whole operation; failure does
+        not commit data/bit count. See docs/c-runtime-contracts.md.
       - put_bitmap writes a presence bitmap given as one byte per bit
         (0/1); packed into octets and written in bulk — the same
         P2-1 fast path the C++ runtime uses.
@@ -63,15 +66,18 @@ size_t        asn1_bit_writer_bit_size(const asn1_bit_writer_t* w);
 size_t        asn1_bit_writer_byte_size(const asn1_bit_writer_t* w);
 int           asn1_bit_writer_octet_aligned(const asn1_bit_writer_t* w);
 
-/* Move out the internal buffer. `*out_buf` receives a malloc'd pointer
+/* Copy out valid bytes. `*out_buf` receives a malloc'd pointer
    that the caller must free(); `*out_size` receives the byte count
    (rounded up for incomplete trailing octets). After take(), the
-   writer is empty and reusable. */
+   writer is empty and reusable. Failure leaves outputs and writer data
+   unchanged; existing returned buffers are never implicitly freed. */
 asn1_status_t asn1_bit_writer_take(asn1_bit_writer_t* w,
                                    uint8_t** out_buf, size_t* out_size);
 void          asn1_bit_writer_clear(asn1_bit_writer_t* w);
 
-/* BitReader: consume bits from a borrowed byte buffer. */
+/* BitReader: owns a copy of the input; create leaves *out unchanged on
+   failure. get primitives leave outputs and read position unchanged on
+   failure. Returned buffers are caller-owned (same-CRT free()). */
 typedef struct asn1_bit_reader asn1_bit_reader_t;
 
 asn1_status_t asn1_bit_reader_create(asn1_bit_reader_t** out,

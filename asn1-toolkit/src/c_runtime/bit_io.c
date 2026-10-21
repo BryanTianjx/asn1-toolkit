@@ -39,6 +39,7 @@
 #include <asn1/c_runtime/limits.h>
 
 #include <stdlib.h>
+#include "alloc_internal.h"
 #include <string.h>
 
 /* --------------------------------------------------------------------- */
@@ -65,7 +66,7 @@ asn1_status_t asn1_bit_writer_create(asn1_bit_writer_t** out) {
   }
   asn1_bit_writer_t* w = (asn1_bit_writer_t*)calloc(1, sizeof(*w));
   if (!w) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   *out = w;
   return ASN1_OK;
@@ -80,21 +81,28 @@ void asn1_bit_writer_destroy(asn1_bit_writer_t* w) {
 }
 
 /* Internal: ensure `nbits` more bits can be written. */
-static void bit_writer_ensure(asn1_bit_writer_t* w, size_t nbits) {
-  const size_t need = (w->bit_count + nbits + 7u) / 8u;
+static asn1_status_t bit_writer_ensure(asn1_bit_writer_t* w, size_t nbits) {
+  if (nbits > SIZE_MAX - w->bit_count) {
+    return ASN1_ERR_LENGTH_OVERFLOW;
+  }
+  const size_t total = w->bit_count + nbits;
+  const size_t need = total / 8u + (total % 8u != 0u);
   if (w->cap < need) {
     size_t new_cap = w->cap == 0 ? 16u : w->cap;
     while (new_cap < need) {
+      if (new_cap > SIZE_MAX / 2u) {
+        new_cap = need;
+        break;
+      }
       new_cap *= 2u;
     }
     uint8_t* nb = (uint8_t*)realloc(w->buf, new_cap);
-    if (!nb) {
-      return; /* out of memory; subsequent writes will silently no-op */
-    }
+    if (!nb) return ASN1_ERR_OUT_OF_MEMORY;
     memset(nb + w->cap, 0, new_cap - w->cap);
     w->buf = nb;
     w->cap = new_cap;
   }
+  return ASN1_OK;
 }
 
 asn1_status_t asn1_bit_writer_put_bit(asn1_bit_writer_t* w, int bit) {
@@ -102,12 +110,8 @@ asn1_status_t asn1_bit_writer_put_bit(asn1_bit_writer_t* w, int bit) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   const size_t byte_index = w->bit_count >> 3;
-  if (byte_index >= w->cap) {
-    bit_writer_ensure(w, 8u);
-    if (byte_index >= w->cap) {
-      return ASN1_ERR_LENGTH_OVERFLOW;
-    }
-  }
+  asn1_status_t status = bit_writer_ensure(w, 1u);
+  if (status != ASN1_OK) return status;
   if (bit) {
     const size_t bit_index = 7u - (w->bit_count & 7u);
     w->buf[byte_index] = (uint8_t)(w->buf[byte_index] | (uint8_t)(1u << bit_index));
@@ -127,7 +131,8 @@ asn1_status_t asn1_bit_writer_put_bits(asn1_bit_writer_t* w,
   if (nbits == 0) {
     return ASN1_OK;
   }
-  bit_writer_ensure(w, nbits);
+  asn1_status_t status = bit_writer_ensure(w, nbits);
+  if (status != ASN1_OK) return status;
   size_t remaining = nbits;
   size_t bit_off = w->bit_count & 7u;
   size_t byte_index = w->bit_count >> 3;
@@ -164,16 +169,20 @@ asn1_status_t asn1_bit_writer_put_bits_from_bytes(asn1_bit_writer_t* w,
   if (!w) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
+  if ((!bytes.data && bytes.size != 0u) ||
+      nbits / 8u + (nbits % 8u != 0u) > bytes.size) {
+    return ASN1_ERR_INVALID_ARGUMENT;
+  }
+  asn1_status_t status = bit_writer_ensure(w, nbits);
+  if (status != ASN1_OK) return status;
   /* Fast path: octet-aligned writer + whole-octet request copies bytes
      directly; a sub-octet tail lands in a fresh zeroed octet (same shape
      as the C++ runtime). Sub-octet tail needs one extra source byte;
-     otherwise fall through to the per-bit loop (which silently stops
-     when the source runs out, as before). */
+     source size and full destination capacity were checked above. */
   if ((w->bit_count & 7u) == 0u) {
     const size_t whole = nbits / 8u;
     if (whole < bytes.size ||
         (whole == bytes.size && (nbits & 7u) == 0u)) {
-      bit_writer_ensure(w, whole * 8u);
       const size_t base = w->bit_count >> 3;
       if (whole > 0 && bytes.data) {
         memcpy(w->buf + base, bytes.data, whole);
@@ -184,12 +193,6 @@ asn1_status_t asn1_bit_writer_put_bits_from_bytes(asn1_bit_writer_t* w,
         return ASN1_OK;
       }
       const size_t byte_index = w->bit_count >> 3;
-      if (byte_index >= w->cap) {
-        bit_writer_ensure(w, 8u);
-        if (byte_index >= w->cap) {
-          return ASN1_ERR_LENGTH_OVERFLOW;
-        }
-      }
       w->buf[byte_index] = (uint8_t)((bytes.data[whole] & mask_bits(nbits))
                                        << (8u - nbits));
       w->bit_count += nbits;
@@ -215,6 +218,9 @@ asn1_status_t asn1_bit_writer_put_bitmap(asn1_bit_writer_t* w,
   if (!w) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
+  if (!bits.data && bits.size != 0u) return ASN1_ERR_INVALID_ARGUMENT;
+  asn1_status_t status = bit_writer_ensure(w, bits.size);
+  if (status != ASN1_OK) return status;
   /* Pack up to 64 source bits at a time; bulk write matches a per-bit
      loop byte-for-byte (P2-1 fast path). */
   size_t i = 0;
@@ -242,8 +248,11 @@ asn1_status_t asn1_bit_writer_put_octets(asn1_bit_writer_t* w,
   if (!w) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
+  if (!bytes.data && bytes.size != 0u) return ASN1_ERR_INVALID_ARGUMENT;
+  if (bytes.size > SIZE_MAX / 8u) return ASN1_ERR_LENGTH_OVERFLOW;
+  asn1_status_t status = bit_writer_ensure(w, bytes.size * 8u);
+  if (status != ASN1_OK) return status;
   if ((w->bit_count & 7u) == 0u) {
-    bit_writer_ensure(w, bytes.size * 8u);
     const size_t base = w->bit_count >> 3;
     if (bytes.size > 0 && bytes.data) {
       memcpy(w->buf + base, bytes.data, bytes.size);
@@ -282,7 +291,7 @@ size_t asn1_bit_writer_byte_size(const asn1_bit_writer_t* w) {
   if (!w) {
     return 0;
   }
-  return (w->bit_count + 7u) / 8u;
+  return w->bit_count / 8u + (w->bit_count % 8u != 0u);
 }
 
 int asn1_bit_writer_octet_aligned(const asn1_bit_writer_t* w) {
@@ -297,22 +306,18 @@ asn1_status_t asn1_bit_writer_take(asn1_bit_writer_t* w,
   if (!w || !out_buf || !out_size) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
-  asn1_status_t s = asn1_bit_writer_align_to_octet(w);
-  if (s != ASN1_OK) {
-    return s;
-  }
-  const size_t n = w->bit_count / 8u;
+  const size_t n = asn1_bit_writer_byte_size(w);
   uint8_t* out = (uint8_t*)malloc(n == 0 ? 1u : n);
   if (!out) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   if (n > 0) {
     memcpy(out, w->buf, n);
   }
   *out_buf = out;
   *out_size = n;
-  /* Reset for reuse. */
-  w->bit_count = 0;
+  /* Reset storage as well: put_bit appends with OR. */
+  asn1_bit_writer_clear(w);
   return ASN1_OK;
 }
 
@@ -320,6 +325,7 @@ void asn1_bit_writer_clear(asn1_bit_writer_t* w) {
   if (!w) {
     return;
   }
+  if (w->buf) memset(w->buf, 0, w->cap);
   w->bit_count = 0;
 }
 
@@ -335,18 +341,19 @@ struct asn1_bit_reader {
 
 asn1_status_t asn1_bit_reader_create(asn1_bit_reader_t** out,
                                      asn1_byte_view_t src) {
-  if (!out) {
+  if (!out || (!src.data && src.size != 0u)) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
+  if (src.size > SIZE_MAX / 8u) return ASN1_ERR_LENGTH_OVERFLOW;
   asn1_bit_reader_t* r = (asn1_bit_reader_t*)calloc(1, sizeof(*r));
   if (!r) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   if (src.size > 0 && src.data) {
     r->buf = (uint8_t*)malloc(src.size);
     if (!r->buf) {
       free(r);
-      return ASN1_ERR_LENGTH_OVERFLOW;
+      return ASN1_ERR_OUT_OF_MEMORY;
     }
     memcpy(r->buf, src.data, src.size);
     r->size = src.size;
@@ -440,10 +447,11 @@ asn1_status_t asn1_bit_reader_get_bits_as_bytes(asn1_bit_reader_t* r,
   if (asn1_bit_reader_bit_remaining(r) < nbits) {
     return ASN1_ERR_TRUNCATED;
   }
-  const size_t nbytes = (nbits + 7u) / 8u;
+  const size_t nbytes = nbits / 8u + (nbits % 8u != 0u);
+  if (nbytes > ASN1_MAX_STRING_BYTES) return ASN1_ERR_RESOURCE_LIMIT;
   uint8_t* out = (uint8_t*)calloc(nbytes == 0 ? 1u : nbytes, 1);
   if (!out) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   for (size_t i = 0; i < nbits; ++i) {
     int b = 0;
@@ -483,11 +491,13 @@ asn1_status_t asn1_bit_reader_get_octets(asn1_bit_reader_t* r, size_t n,
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (n > (size_t)ASN1_MAX_STRING_BYTES) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_RESOURCE_LIMIT;
   }
+  if (n > SIZE_MAX / 8u) return ASN1_ERR_LENGTH_OVERFLOW;
+  if (n * 8u > asn1_bit_reader_bit_remaining(r)) return ASN1_ERR_TRUNCATED;
   uint8_t* out = (uint8_t*)malloc(n == 0 ? 1u : n);
   if (!out) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_OUT_OF_MEMORY;
   }
   for (size_t i = 0; i < n; ++i) {
     uint8_t oc = 0;

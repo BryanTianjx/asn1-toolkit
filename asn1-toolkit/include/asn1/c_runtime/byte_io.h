@@ -49,6 +49,10 @@ extern "C" {
    asn1::byte_io's full surface. */
 typedef struct asn1_byte_reader asn1_byte_reader_t;
 
+/* Owns an input copy. NULL data is valid only for size zero. Creation
+   leaves *out unchanged on failure; destroy(NULL) is safe, repeated
+   destruction of a non-NULL handle is not. */
+
 asn1_status_t asn1_byte_reader_create(asn1_byte_reader_t** out,
                                       asn1_byte_view_t src);
 void          asn1_byte_reader_destroy(asn1_byte_reader_t* r);

@@ -32,6 +32,7 @@
 #include <asn1/c_runtime/bit_string.h>
 
 #include <stdlib.h>
+#include "alloc_internal.h"
 #include <string.h>
 /* ASN1_MAX_STRING_BYTES is defined in limits.h; bit_string.h doesn't
    pull it in transitively, so include it directly. */
@@ -61,22 +62,23 @@ asn1_status_t asn1_bitstring_resize(asn1_bitstring_t* s, size_t bit_count) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (bit_count > (size_t)ASN1_MAX_STRING_BYTES * 8u) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_RESOURCE_LIMIT;
   }
-  const size_t need_bytes = (bit_count + 7u) / 8u;
+  const size_t need_bytes = bit_count / 8u + (bit_count % 8u != 0u);
   if (need_bytes == 0u) {
-    /* Empty: drop storage but keep the cap (cheap to reuse). */
+    /* Empty: retain storage and capacity for reuse. */
     s->bit_length = 0;
     return ASN1_OK;
   }
   if (s->cap_bytes < need_bytes) {
     size_t new_cap = s->cap_bytes == 0u ? 8u : s->cap_bytes;
     while (new_cap < need_bytes) {
+      if (new_cap > SIZE_MAX / 2u) { new_cap = need_bytes; break; }
       new_cap *= 2u;
     }
     uint8_t* nb = (uint8_t*)realloc(s->bits, new_cap);
     if (!nb) {
-      return ASN1_ERR_LENGTH_OVERFLOW;
+      return ASN1_ERR_OUT_OF_MEMORY;
     }
     /* Zero the freshly grown tail so bit_length padding is 0. */
     memset(nb + s->cap_bytes, 0, new_cap - s->cap_bytes);

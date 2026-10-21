@@ -9,15 +9,18 @@
 
 ## 文档清单
 
-| 文档 | 内容 | 读者 |
-|------|------|------|
+| 文档                                 | 内容                                                                            | 读者        |
+| ---------------------------------- | ----------------------------------------------------------------------------- | --------- |
 | [architecture.md](architecture.md) | 编译流水线、分层铁律、核心架构决策、目录与 CMake 目标、编译器接口、AST/IR 语义模型、12 种编解码抽象、三种生成产物形态、错误模型、设计权衡 | 架构师、核心贡献者 |
-| [usage-guide.md](usage-guide.md) | 环境要求、构建（含 sanitizer / 离线）、CLI 参考、生成产物形态对比、上手工作流、项目集成指引、示例文件、常见问题 | 使用者、集成方 |
-| [development.md](development.md) | 代码规范、测试体系（31 个测试可执行）、四条验证门禁纪律、金标准向量体系、新增 codec 家族流程、文档同步纪律 | 贡献者 |
-| [status.md](status.md) | 当前阶段、构建与测试状态、编译门禁与金标准验证结果、剩余工作、已知限制 | 所有人 |
-| [changelog.md](changelog.md) | Phase 1–45 里程碑、近期变更详录（含每项验证口径） | 所有人 |
-| [comparison.md](comparison.md) | 与 asn1c / Python asn1tools 的本地实测横向对比与选型建议 | 技术选型决策者 |
-| [analysis/](analysis/README.md) | 2026-10-08 至 10-13 的架构分析、参考项目审查、优化方案历史归档 | 追溯者 |
+| [usage-guide.md](usage-guide.md)   | 环境要求、构建（含 sanitizer / 离线）、CLI 参考、生成产物形态对比、上手工作流、项目集成指引、示例文件、常见问题              | 使用者、集成方   |
+| [development.md](development.md)   | 代码规范、测试体系、四条验证门禁纪律、金标准向量体系、新增 codec 家族流程、文档同步纪律 | 贡献者 |
+| [status.md](status.md)             | 当前阶段、构建与测试状态、编译门禁与金标准验证结果、剩余工作、已知限制                                           | 所有人       |
+| [remediation-todo.md](remediation-todo.md) | 工程评审修正任务、依赖、验收及逐项交给 AI 的提示模板 | 贡献者 |
+| [c-runtime-contracts.md](c-runtime-contracts.md) | C11 原语的状态码、所有权、初始化/释放与失败后状态 | C 后端贡献者、集成方 |
+| [rev01-03-validation.md](rev01-03-validation.md) | 第一批修复的证据、实际命令、双构建与矩阵结果及验证边界 | 贡献者、评审者 |
+| [changelog.md](changelog.md)       | Phase 1–45 里程碑、近期变更详录（含每项验证口径）                                                | 所有人       |
+| [comparison.md](comparison.md)     | 与 asn1c / Python asn1tools 的本地实测横向对比与选型建议                                     | 技术选型决策者   |
+| [analysis/](analysis/README.md)    | 2026-10-08 至 10-13 的架构分析、参考项目审查、优化方案历史归档                                      | 追溯者       |
 
 ## 阅读路径
 

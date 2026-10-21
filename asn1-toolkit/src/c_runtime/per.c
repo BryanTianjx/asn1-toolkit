@@ -57,6 +57,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include "alloc_internal.h"
 #include <string.h>
 
 /* --------------------------------------------------------------------- */
@@ -277,7 +278,7 @@ asn1_status_t asn1_per_decode_unbounded_int(asn1_bit_reader_t* r,
     return s;
   }
   if (len > (size_t)ASN1_MAX_STRING_BYTES) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_RESOURCE_LIMIT;
   }
   uint8_t* bytes = NULL;
   size_t n = 0;
@@ -289,10 +290,12 @@ asn1_status_t asn1_per_decode_unbounded_int(asn1_bit_reader_t* r,
      byte form to construct the limbs. The C BigInteger doesn't yet
      have a public from_unsigned_bytes helper, so we synthesize the
      limbs directly here. */
-  asn1_bigint_init(out_value);
+  asn1_bigint_t tmp;
+  asn1_bigint_init(&tmp);
   if (n == 0) {
-    out_value->sign = 0;
+    tmp.sign = 0;
     free(bytes);
+    *out_value = tmp;
     return ASN1_OK;
   }
   size_t start = 0;
@@ -302,30 +305,38 @@ asn1_status_t asn1_per_decode_unbounded_int(asn1_bit_reader_t* r,
   for (size_t i = start; i < n; ++i) {
     /* bigint_mul_add_u32 is private; replicate it inline. */
     uint64_t carry = (uint64_t)bytes[i];
-    for (size_t k = 0; k < out_value->nlimbs; ++k) {
-      const uint64_t prod = (uint64_t)out_value->limbs[k] * 256u + carry;
-      out_value->limbs[k] = (uint32_t)(prod & 0xFFFFFFFFu);
+    for (size_t k = 0; k < tmp.nlimbs; ++k) {
+      const uint64_t prod = (uint64_t)tmp.limbs[k] * 256u + carry;
+      tmp.limbs[k] = (uint32_t)(prod & 0xFFFFFFFFu);
       carry = prod >> 32;
     }
     while (carry != 0) {
-      if (out_value->nlimbs == out_value->cap) {
-        size_t new_cap = out_value->cap == 0 ? 4u : out_value->cap * 2u;
-        uint32_t* nl = (uint32_t*)realloc(out_value->limbs,
+      if (tmp.nlimbs == tmp.cap) {
+        size_t new_cap = tmp.cap == 0 ? 4u : tmp.cap * 2u;
+        if (tmp.nlimbs >= ASN1_MAX_BIGINT_LIMBS) {
+          free(bytes); asn1_bigint_free(&tmp); return ASN1_ERR_RESOURCE_LIMIT;
+        }
+        if (new_cap > ASN1_MAX_BIGINT_LIMBS) new_cap = ASN1_MAX_BIGINT_LIMBS;
+        if (new_cap > SIZE_MAX / sizeof(uint32_t)) {
+          free(bytes); asn1_bigint_free(&tmp); return ASN1_ERR_LENGTH_OVERFLOW;
+        }
+        uint32_t* nl = (uint32_t*)realloc(tmp.limbs,
                                             new_cap * sizeof(uint32_t));
         if (!nl) {
           free(bytes);
-          asn1_bigint_free(out_value);
-          return ASN1_ERR_LENGTH_OVERFLOW;
+          asn1_bigint_free(&tmp);
+          return ASN1_ERR_OUT_OF_MEMORY;
         }
-        out_value->limbs = nl;
-        out_value->cap = new_cap;
+        tmp.limbs = nl;
+        tmp.cap = new_cap;
       }
-      out_value->limbs[out_value->nlimbs++] = (uint32_t)carry;
+      tmp.limbs[tmp.nlimbs++] = (uint32_t)carry;
       carry = 0;
     }
   }
-  out_value->sign = out_value->nlimbs > 0 ? +1 : 0;
+  tmp.sign = tmp.nlimbs > 0 ? +1 : 0;
   free(bytes);
+  *out_value = tmp;
   return ASN1_OK;
 }
 
@@ -452,12 +463,16 @@ asn1_status_t asn1_per_decode_bitstring(asn1_bit_reader_t* r,
   if (!r || !range || !out_value) {
     return ASN1_ERR_INVALID_ARGUMENT;
   }
+  asn1_bitstring_t tmp;
+  asn1_bitstring_init(&tmp);
   const size_t nbits = range->upper;
-  asn1_status_t s = asn1_bitstring_resize(out_value, nbits);
+  asn1_status_t s = asn1_bitstring_resize(&tmp, nbits);
   if (s != ASN1_OK) {
     return s;
   }
   if (nbits == 0u) {
+    asn1_bitstring_free(out_value);
+    *out_value = tmp;
     return ASN1_OK;
   }
   const size_t whole = nbits / 8u;
@@ -465,20 +480,23 @@ asn1_status_t asn1_per_decode_bitstring(asn1_bit_reader_t* r,
   size_t n = 0;
   s = asn1_bit_reader_get_bits_as_bytes(r, nbits, &bytes, &n);
   if (s != ASN1_OK) {
+    asn1_bitstring_free(&tmp);
     return s;
   }
   /* Bytes are MSB-first within each octet, matching the asn1_bitstring_t
      layout. */
   if (whole > 0) {
-    memcpy(out_value->bits, bytes, whole);
+    memcpy(tmp.bits, bytes, whole);
   }
   if (nbits - whole * 8u > 0u && whole < n) {
     /* Tail goes into the next byte at the top `tail` bits. */
-    out_value->bits[whole] = (uint8_t)(bytes[whole]
+    tmp.bits[whole] = (uint8_t)(bytes[whole]
                                          & (uint8_t)(mask_bits(nbits - whole * 8u)
                                                       << (8u - (nbits - whole * 8u))));
   }
   free(bytes);
+  asn1_bitstring_free(out_value);
+  *out_value = tmp;
   return ASN1_OK;
 }
 
@@ -506,7 +524,7 @@ asn1_status_t asn1_per_decode_octetstring(asn1_bit_reader_t* r,
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (length > (size_t)ASN1_MAX_STRING_BYTES) {
-    return ASN1_ERR_LENGTH_OVERFLOW;
+    return ASN1_ERR_RESOURCE_LIMIT;
   }
   return asn1_bit_reader_get_octets(r, length, out_buf, out_size);
 }
