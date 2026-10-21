@@ -1,13 +1,14 @@
 # asn1-toolkit
 
 C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）编译为 C++17 值类型与
-编解码代码，并内置全部 12 种编码规则（Encoding Rule）的运行时原语库。
+编解码代码，并提供 12 个产品 codec 入口及运行时原语库。JERI 是项目的 JER 指令入口，
+与 JER 共享 X.697 线路语法；12 个入口不表示 12 种独立标准线路格式。
 
 | 项目    | 值                                                                                                                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 当前阶段  | Phase 49 — C 语言代码生成器 P2-4（sub-task 1 `include/asn1/c_runtime/*` 头骨架 + sub-task 2 `src/c_runtime/*.c` 纯 C11 runtime + `Asn1CRuntimeSmoke` 链接+运行门禁；详见 [docs/status.md](docs/status.md)） |
-| 测试状态  | 370/370 通过（Release + ASan/UBSan 双构建门禁；含 C11 故障、PER 正确性及大值门禁） |
-| 编码规则  | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI                                                                                                          |
+| 测试状态 | GCC/Clang 的 Release、ASan+UBSan 四轮各 **392/392**；7×12 实际入口语法矩阵 **84/84**，见 [验收记录](docs/rev13-19-validation.md) |
+| 编码入口  | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI                                                                                                          |
 | 语言/构建 | C++17（GCC / Clang；MSVC 本地可用）+ CMake 3.16+                                                                                                                                             |
 | 依赖    | 零第三方运行时依赖（BigInt 自研，无 Boost、无 multiprecision）                                                                                                                                         |
 
@@ -15,7 +16,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 
 | 能力         | 说明                                                                                                                         |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 编码规则全覆盖    | 12 种编码规则运行时库；UPER/APER 共享同一 PER 实现（`Variant::{Unaligned,Aligned}` 参数化，非两份代码）；DER=BER+规范策略、COER=OER+规范策略、CXER=XER+规范策略      |
+| 编码入口    | 12 个产品入口（能力边界见 [入口登记](docs/codec-entries.md)）；UPER/APER 共享同一 PER 实现（`Variant::{Unaligned,Aligned}` 参数化，非两份代码）；DER=BER+规范策略、COER=OER+规范策略、CXER=XER+规范策略      |
 | 电信级语法支持    | CLASS / 信息对象类 / 表约束（表约束类型化 IE 开放类型）/ 参数化类型 / 版本括号 `[[...]]` / INSTANCE OF / EXTERNAL / EMBEDDED PDV / REAL / >64 位 INTEGER |
 | 多编码规则组合生成  | `--codec uper,ber` 位掩码组合一次生成多套编解码代码                                                                                        |
 | 字节级金标准差分验证 | PER/APER（asn1c oracle，54 向量）、BER/DER/OER（asn1tools + asn1c oracle，16 用例）、CER（X.690 条文推导 + DER 值等价，10 用例）                   |
@@ -66,7 +67,7 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ASAN_OPTIONS=detect_leaks=1 \
 
 ```text
 asn1-toolkit/
-  CMakeLists.txt          构建系统（14 个静态库 + asn1cxx 可执行 + 测试/门禁目标）
+  CMakeLists.txt          构建系统（默认 20 个静态库 + asn1cxx 可执行 + 测试/门禁目标）
   tools/asn1cxx/          编译器驱动（CLI）
   include/asn1/           公共接口（common / support / ast / frontend / semantic /
                            constraints / ir / codegen / runtime/*）

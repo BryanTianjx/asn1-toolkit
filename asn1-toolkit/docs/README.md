@@ -16,6 +16,7 @@
 | [development.md](development.md)   | 代码规范、测试体系、四条验证门禁纪律、金标准向量体系、新增 codec 家族流程、文档同步纪律 | 贡献者 |
 | [status.md](status.md)             | 当前阶段、构建与测试状态、编译门禁与金标准验证结果、剩余工作、已知限制                                           | 所有人       |
 | [remediation-todo.md](remediation-todo.md) | 工程评审修正任务、依赖、验收及逐项交给 AI 的提示模板 | 贡献者 |
+| [asn1-remediation/SKILL.md](skills/asn1-remediation/SKILL.md) | AI 执行 REV 修正的项目约束、回归选择与同步流程；随修正维护的仓库 skill 源文件 | AI、贡献者 |
 | [c-runtime-contracts.md](c-runtime-contracts.md) | C11 原语的状态码、所有权、初始化/释放与失败后状态 | C 后端贡献者、集成方 |
 | [rev01-03-validation.md](rev01-03-validation.md) | 第一批修复的证据、实际命令、双构建与矩阵结果及验证边界 | 贡献者、评审者 |
 | [rev04-09-validation.md](rev04-09-validation.md) | 第二批 C PER 修复、独立差分及标准仲裁与验证边界 | 贡献者、评审者 |
@@ -25,6 +26,9 @@
 | [changelog.md](changelog.md)       | Phase 1–45 里程碑、近期变更详录（含每项验证口径）                                                | 所有人       |
 | [comparison.md](comparison.md)     | 与 asn1c / Python asn1tools 的本地实测横向对比与选型建议                                     | 技术选型决策者   |
 | [analysis/](analysis/README.md)    | 2026-10-08 至 10-13 的架构分析、参考项目审查、优化方案历史归档                                      | 追溯者       |
+| [codec-entries.md](codec-entries.md) | 12 产品入口、JERI 定义与函数/依赖映射 | 集成方 |
+| [build-and-package.md](build-and-package.md) | 离线、交叉两阶段、安装包与独立消费 | 集成方、CI |
+| [rev13-19-validation.md](rev13-19-validation.md) | 第四批实际验收范围与结果 | 评审者 |
 
 ## 阅读路径
 
@@ -45,5 +49,5 @@ README（根目录）→ [usage-guide.md](usage-guide.md) 快速开始与 CLI �
 [development.md 的"文档同步纪律"一节](development.md#文档同步纪律)。修改文档时：
 
 1. 同一事实只在一处权威（见上表），其余位置只做链接；
-2. 数字（测试总数、行数、门禁状态）多处出现时，全局检索旧数字后统一更新；
+2. 数字（测试总数、行数、门禁状态）多处出现时，检索并同步当前说明，保留带日期的历史记录原值；
 3. 变更完成后在 [changelog.md](changelog.md) 追加条目，并同步 [status.md](status.md) 的状态表。

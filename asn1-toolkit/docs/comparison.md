@@ -177,7 +177,7 @@ COER=OER+规范化策略（不复制算法）。
 |------|----------|
 | 遗留 C 项目 / 裸机 / 嵌入式无 OS | asn1c（零依赖，电信事实标准） |
 | 快速原型 / 脚本 / 测试向量生成 / 教学 | Python asn1tools（MIT，即装即用） |
-| 生产级 C++ 项目 | asn1-toolkit：需 COER/CXER/E-XER/JER/JERI（12 种编码规则全覆盖）；含 CLASS/表约束/参数化（电信 IE，唯一支持信息对象类）；需 Result 无异常错误模型 / 强诊断；需金标准字节级正确性证明；需多编码规则一次组合生成 |
+| 生产级 C++ 项目 | asn1-toolkit：需 COER/CXER/E-XER/JER/JERI（12 个产品入口，边界见 [入口登记](codec-entries.md)）；含 CLASS/表约束/参数化（电信 IE，唯一支持信息对象类）；需 Result 无异常错误模型 / 强诊断；需金标准字节级正确性证明；需多编码规则一次组合生成 |
 
 不适用 asn1-toolkit 的场景：
 

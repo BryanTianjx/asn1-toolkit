@@ -689,3 +689,19 @@ END
 }
 
 
+
+TEST(Codegen, RejectsUnimplementedJerControlInsteadOfIgnoringIt) {
+  asn1::Diagnostics diagnostics;
+  asn1::SourceFile source;
+  auto model = analyze(R"(
+M DEFINITIONS JER INSTRUCTIONS ::= BEGIN
+  Mode ::= ENUMERATED { off, on }
+  ENCODING-CONTROL JER [TEXT ALL AS UPPERCASED] ENUMERATED
+END
+)", diagnostics, source);
+  EXPECT_FALSE(diagnostics.ok());
+  bool found = false;
+  for (const auto& item : diagnostics.items())
+    found = found || item.message.find("unsupported JER ENCODING-CONTROL") != std::string::npos;
+  EXPECT_TRUE(found);
+}

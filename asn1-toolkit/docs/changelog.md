@@ -6,6 +6,20 @@
 
 ## 近期变更详录
 
+### 2026-10-21
+
+**项目修正 skill 同步**
+
+- 新增 [asn1-remediation/SKILL.md](skills/asn1-remediation/SKILL.md)，沉淀前四批已验证的错误契约、PER、缓存、并发、组合入口及构建回归流程；后续每批修正同时维护对应指引。
+- 文档同步规则改为更新当前数字、保留历史验收证据；TODO 提示模板加入 skill 同步步骤。本次仅改文档，检查 skill 格式、相对链接与 diff，不重复编译门禁。
+
+**REV-13..19 — 第四批缓存、并发、产品入口与构建/安装门禁**
+
+- 以 compiler 内容指纹替代写死版本；完整输出选项、依赖及有序源路径入键；读取失败与无来源 IR 禁用缓存，损坏产物重新生成。
+- declare/resolve 限制并发并按模块序合并；JERI 作为共享 X.697 JER 的产品入口，补 ARRAY 控制段及未实现控制段错误；OER/COER、XER/CXER/E-XER 组合分别生成。
+- C11/编译器条件放在 target；最低 CMake 离线验证、GTest SHA256、宿主/目标两阶段与安装导出；私有 GTest 不进入 SDK，新增独立 C/C++/compiler/宿主生成消费者。
+- GCC/Clang Release 与 ASan+UBSan 四轮各 **392/392**，实际 7×12 语法矩阵 **84/84**；MSVC 产品构建/40 项回归、CMake 3.16.8 代表门禁 2/2、Linux AArch64 编译/链接通过。范围与复跑命令见 [第四批验收](rev13-19-validation.md)。
+
 ### 2026-10-20
 
 **REV-10..12 — 第三批 C++ 错误模型与 E-XER 生成代码修正**

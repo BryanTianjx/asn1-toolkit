@@ -1,12 +1,14 @@
 # 项目状态
 
-当前状态的唯一权威。状态截至 **2026-10-20**。历史变更见
+当前状态的唯一权威。状态截至 **2026-10-21**。历史变更见
 [changelog.md](changelog.md)。已排期 / 未排期待办见
 [todo.md](todo.md)。
 
 ## 当前阶段
 
 **Phase 49 — C 语言代码生成器（P2-4，sub-task 1 + sub-task 2 已落地；sub-task 3+ 未排期）。**
+
+- **2026-10-21，REV-13..19**：修复缓存生成器指纹/输入顺序及有界并发；补 JERI 产品入口与控制段错误诊断，隔离 OER/XML 组合策略；落地离线、宿主/目标构建和安装包。GCC/Clang Release、ASan+UBSan 四轮各 **392/392**，实际入口矩阵 **84/84**；MSVC、最低 CMake 3.16.8 与 AArch64 链接证据见 [第四批验收](rev13-19-validation.md)。设备运行与完整标准语义审计仍未宣称完成。
 
 - **2026-10-20，REV-10..12**：修复 E-XER 属性错误传播与三种生成形态回归；
   SourceFile / IR BigInt 改为 Result，数字/文件/线程资源失败规范化；补 Result
@@ -46,7 +48,7 @@
   复用。子任务清单见 [todo.md](todo.md#p2-4--c-语言代码生成器-lang-c)。
 
 - `Analyzer::analyze(modules, parallelism = 0)` 新增 `parallelism` 参数；
-  `0`（默认）= 串行基线（保持现状，CI 金标准对验强制），`>0` = worker 数。
+  `0`（默认）= 串行基线（保持现状，CI 金标准对验强制），`1` 仍串行，`>1` 为并发上界。
 - 并行范围：`declare_pass` 每模块独立声明符号 + 局部 `SymbolTable`，
   pass 结束后按 module index 串行合并；`resolve_pass` 每模块持完整符号表
   只读视图 + 局部 `Diagnostics`，worker 间不共享跨模块 diagnostics；
@@ -59,8 +61,8 @@
   SymbolTable&&)`（按 module key 合入，worker 间 duplicate 检测由 declare
   自身保证）。`Analyzer::analyze` 形参 `parallelism` 不破坏现有调用（默认
   0 = 串行）。
-- CLI：`asn1cxx --parallel <N>`（N ∈ 0..1024，0 = 串行 = 默认；>0 启用
-  worker 线程池）；`--help` 已文档化。
+- CLI：`asn1cxx --parallel <N>`（N ∈ 0..1024，0 = 串行 = 默认；>1 使用
+  有界任务批次（1 保持串行））；`--help` 已文档化。
 - 验证：`asn1_parallel_analyzer_tests`（10 项）：`Diagnostics::merge` 序列
   / 空合并 / `error_count` 聚合；`SymbolTable::merge` 合入 + duplicate
   检测；模块 fixture（tiny / multi-module import / undefined type / unknown
@@ -103,18 +105,18 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **370/370 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；本批 E-XER/错误契约回归，含原 C11 smoke、故障及 PER 门禁；见第三批验收） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **370/370 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
+| Release 构建 ctest | GCC 13.3 / Clang 18.1.3 各 **392/392**，0 失败（2026-10-21，WSL Ubuntu 24.04） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | GCC / Clang 各 **392/392**，0 失败；启用 leak detection / halt_on_error |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态
 
 | 门禁 | 结果 |
 |------|------|
-| 全 codec 产物门禁 | 7 fixture（tlv_oer_golden / tlv_golden / cer_golden / RRC 8.6.0 / LPP 14.3.0 / S1AP 14.4.0 / rrc_slice）× 12 codec（uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误 |
-| 单 codec × 全家族门禁（新增） | LPP × 12 codec 各跑一次独立 emit + 完整编译（`asn1_lpp_single_{uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer}_compile`）：每族单独选择时产物的 runtime header 依赖自包含。该门禁捕获单 codec 场景的 include 缺口（组合门禁会把其他分支的 header 链入而掩盖） |
+| 全 codec 产物门禁 | 7 fixture（tlv_oer_golden / tlv_golden / cer_golden / RRC 8.6.0 / LPP 14.3.0 / S1AP 14.4.0 / rrc_slice）× 12 codec（uper,aper,ber,der,cer,oer,coer,jer,jeri,xer,exer,cxer）`g++ -std=c++17 -fsyntax-only` 全部零错误 |
+| 单 codec × 全家族门禁（新增） | LPP × 12 codec 各跑一次独立 emit + 完整编译（`asn1_lpp_single_{uper,aper,ber,der,cer,oer,coer,jer,jeri,xer,exer,cxer}_compile`）：每族单独选择时产物的 runtime header 依赖自包含。该门禁捕获单 codec 场景的 include 缺口（组合门禁会把其他分支的 header 链入而掩盖） |
 | 分文件 emit 门禁（UPER） | `asn1_split_lpp_split`（LPP 单模块路径）、`asn1_split_s1ap_split`（S1AP 三 emit 单元，含合并的 IEs+Containers+PDU-Contents 递归环）静态库编译通过 |
-| 分文件 emit 手工矩阵 | LPP uper/aper/coer/ber/der/oer/jer 零错误；S1AP uper/ber/der/oer/jer 零错误；RRC uper 零错误；xer/exer/cxer 单 codec 零错误（XML 缺口已修复，见上）；flat 产物与改动前逐字节一致 |
+| 历史分文件 emit 手工矩阵 | LPP uper/aper/coer/ber/der/oer/jer 零错误；S1AP uper/ber/der/oer/jer 零错误；RRC uper 零错误；xer/exer/cxer 单 codec 零错误（XML 缺口已修复，见上）；flat 产物与改动前逐字节一致 |
 | 三大 3GPP fixture emit 产物编译 | RRC/LPP/S1AP 全量 emit 产物作为 CMake 静态库编译通过（编译的是真实定义，非 stub） |
 
 ## 金标准差分验证状态

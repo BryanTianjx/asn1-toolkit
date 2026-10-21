@@ -39,6 +39,9 @@
 #include <asn1/support/source_file.hpp>
 
 #include <cstdio>
+#include <functional>
+#include <thread>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -72,7 +75,7 @@ namespace fs = std::filesystem;
 fs::path make_tmpdir(const std::string& tag) {
   static std::mt19937_64 rng{std::random_device{}()};
   const std::string suffix =
-      "_" + tag + "_" + std::to_string(static_cast<long long>(::getpid())) + "_" +
+      "_" + tag + "_" + std::to_string(static_cast<long long>(std::hash<std::thread::id>{}(std::this_thread::get_id()))) + "_" +
       std::to_string(rng());
   fs::path dir = fs::temp_directory_path() / ("asn1_p31_test" + suffix);
   std::error_code ec;
@@ -380,3 +383,52 @@ TEST(ParallelAnalyzer, SerialVsParallelDuplicateSymbol) {
 // --- CLI smoke ---------------------------------------------------------
 
 }  // namespace
+
+TEST(ParallelResources, BoundedPeakAndOrderedMerge) {
+  for (std::size_t limit : {1u, 2u, 16u}) {
+    std::atomic<unsigned> active{0}, peak{0};
+    std::vector<std::size_t> merged;
+    asn1::detail::bounded_ordered(97, limit, [&](std::size_t index) {
+      const auto current = ++active;
+      auto old = peak.load();
+      while (old < current && !peak.compare_exchange_weak(old, current)) {}
+      std::this_thread::yield();
+      --active;
+      return index;
+    }, [&](std::size_t index) { merged.push_back(index); });
+    ASSERT_EQ(merged.size(), 97u);
+    EXPECT_LE(peak.load(), limit);
+    for (std::size_t i = 0; i < merged.size(); ++i) EXPECT_EQ(merged[i], i);
+  }
+  asn1::detail::bounded_ordered(0, 0, [](std::size_t i) { return i; },
+                             [](std::size_t) { FAIL() << "empty schedule"; });
+}
+
+TEST(ParallelAnalyzer, EveryLimitAndEmptyInputPreservesDiagnostics) {
+  const std::string text = "A DEFINITIONS ::= BEGIN T ::= Missing END "
+                           "B DEFINITIONS ::= BEGIN U ::= MissingToo END";
+  auto analyze = [&](int limit) {
+    asn1::Diagnostics d;
+    auto source = asn1::SourceFile::from_string("multi.asn", text);
+    asn1::Lexer lexer(source, d);
+    asn1::Parser parser(lexer, d);
+    auto modules = parser.parse_modules();
+    asn1::Analyzer analyzer(d);
+    AnalyzeRun result;
+    result.model = analyzer.analyze(std::move(modules), limit);
+    result.diag = std::move(d);
+    return result;
+  };
+  const auto serial = analyze(0);
+  for (int limit : {1, 2, 16}) {
+    const auto parallel = analyze(limit);
+    ASSERT_EQ(serial.diag.items().size(), parallel.diag.items().size());
+    for (std::size_t i = 0; i < serial.diag.items().size(); ++i)
+      EXPECT_EQ(serial.diag.items()[i].message, parallel.diag.items()[i].message);
+    asn1::Diagnostics empty;
+    asn1::Analyzer analyzer(empty);
+    auto model = analyzer.analyze({}, limit);
+    EXPECT_TRUE(empty.ok());
+    EXPECT_TRUE(model.modules.empty());
+  }
+}

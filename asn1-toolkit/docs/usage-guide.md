@@ -89,9 +89,10 @@ cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DASN1_ENABLE_SANITIZERS=ON \
 | `xer` | XER（X.693 BASIC-XER） | `asn1_xer` |
 | `cxer` | CXER（X.693 CANONICAL-XER） | `asn1_cxer` |
 | `exer` | E-XER（X.693 扩展 XML + 编码指令） | `asn1_exer` |
-| `jer` | JER（X.697 BASIC-JER） | `asn1_jer` |
+| `jer` | JER（X.697，兼容已有指令感知行为） | `asn1_jeri`（传递链接 `asn1_jer`） |
+| `jeri` | 项目 JER encoding-instruction 入口；同一种 X.697 线路语法 | `asn1_jeri` |
 
-组合语法（位掩码，asn1c / asn1tools 均为单选，本工具独有）：
+组合语法（位掩码；重复项去重，列表顺序不改变所选入口）：
 
 ```bash
 # 逗号分隔组合
@@ -102,7 +103,7 @@ cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DASN1_ENABLE_SANITIZERS=ON \
 
 # 全量组合
 ./build/asn1cxx --emit-dir build/gen \
-  --codec uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer examples/person.asn
+  --codec uper,aper,ber,der,cer,oer,coer,jer,jeri,xer,exer,cxer examples/person.asn
 ```
 
 列表中出现空段或未知名称会报错退出。
@@ -180,7 +181,7 @@ g++ -std=c++17 my_app.cpp build/gen/generated.cpp \
    `asn1_per`；`ber` → `asn1_ber`；`der` → `asn1_der`；`cer` → `asn1_cer`；
    `oer` → `asn1_oer`；`coer` → `asn1_coer`；`xer`/`cxer` → `asn1_xer` +
    `asn1_cxer`；`exer` → `asn1_exer`（并视产物 include 链接 `asn1_xer`）；
-   `jer` → `asn1_jer`（JERI 指令产物加链 `asn1_jeri`）。所有运行时库依赖
+   `jer` / `jeri` → `asn1_jeri`（传递链接 `asn1_jer`，涵盖生成器使用的指令辅助函数）。所有运行时库依赖
    `asn1_runtime`；
 3. **产物形态选择**：多 TU 项目用默认 out-of-line（或 `--emit-split` 按模块
    拆分）；单 TU 小模块用 `--emit-inline`；
@@ -244,3 +245,22 @@ ctest --test-dir build -R Cli --output-on-failure  # 按名字过滤
 **Q：许可证？**
 README 标注 TBD（计划开源，发布时补齐 LICENSE 文件）；源码文件头已标注
 PROCODEC 版权 2026–2031。
+
+
+## 缓存与并发契约（REV-13/14）
+
+缓存键含编译器实现/头文件内容指纹、工具链标识、格式版本、输出选项和全部
+`source_paths` 内容及输入顺序。输入读取失败或产物丢失/被改写时重新生成。程序化 API
+若不提供源路径就关闭缓存；提供时必须列全依赖，并保证 IR 对应这些源输入。
+改变手工 IR 后不能沿用旧的源依赖声明。缓存不是 IR 的完整序列化。
+
+`--parallel 0` / `1` 串行；`2..1024` 对 declare/resolve 使用不超过 N 个任务的
+有界批次，按模块索引合并结果。lower/tag 仍串行。批次屏障可能使长短任务混合时
+利用率低于固定线程池，但线程上界和诊断顺序明确；线程启动资源失败回退延迟执行。
+
+## 离线、交叉构建和安装包
+
+参见 [构建与安装消费](build-and-package.md)。原有三种产物形态均保留。
+新增稳定入口 `encode_exer/decode_exer`；E-XER 选择且未选择 XER 时保留旧
+`encode_xer/decode_xer` 兼容别名。组合中 XER、CXER、E-XER 各自生成，
+OER 与 COER 也各自生成，不再由掩码里的规范策略覆盖同族入口。

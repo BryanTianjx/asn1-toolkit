@@ -33,7 +33,7 @@ namespace codegen {
    *  Returns     : bool
    */
 bool Emitter::xer_use_exer() const {
-    return (options_.codec & CodecKind::Exer) != CodecKind::None;
+    return active_xml_codec_ == CodecKind::Exer;
   }
 
   /**
@@ -43,7 +43,7 @@ bool Emitter::xer_use_exer() const {
    *  Returns     : bool
    */
 bool Emitter::xer_use_cxer() const {
-    return (options_.codec & CodecKind::Cxer) != CodecKind::None;
+    return active_xml_codec_ == CodecKind::Cxer;
   }
 
   /**
@@ -61,7 +61,7 @@ const char* Emitter::xml_ns() const { return xer_use_cxer() ? "asn1::cxer" : "as
    *  Parameters  : none
    *  Returns     : const char*
    */
-const char* Emitter::xml_fn_suffix() const { return xer_use_cxer() ? "cxer" : "xer"; }
+const char* Emitter::xml_fn_suffix() const { return xer_use_cxer() ? "cxer" : (xer_use_exer() ? "exer" : "xer"); }
 
 
 std::string Emitter::transform_xml_name(const std::string& name, ir::Field::JerNameForm form,
@@ -176,6 +176,14 @@ void Emitter::emit_xer_codec_fns(std::ostream& out, ir::TypeId id) {
                                    "& value)");
     emit_xer_decode_body(*body, t, "value", "el", "  ");
     *body << "  return asn1::Result<void>::success();\n}\n\n";
+    // Preserve the old E-XER-only API alias; combined XER retains its own policy.
+    if (xer_use_exer() && (options_.codec & CodecKind::Xer) == CodecKind::None) {
+      body = begin_codec_fn(out, "asn1::Result<asn1::xer::Element> encode_xer(const " + name + "& value)");
+      *body << "  return encode_exer(value);\n}\n\n";
+      body = begin_codec_fn(out, "asn1::Result<void> decode_xer(const asn1::xer::Element& el, " + name + "& value)");
+      *body << "  return decode_exer(el, value);\n}\n\n";
+    }
+
   }
 
 void Emitter::emit_xer_encode_body(std::ostream& out, const ir::Type& t, const std::string& expr,

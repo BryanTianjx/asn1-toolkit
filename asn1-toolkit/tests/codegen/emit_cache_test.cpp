@@ -38,9 +38,12 @@
 #include <asn1/support/source_file.hpp>
 
 #include <cstdio>
+#include <functional>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
@@ -58,7 +61,7 @@ namespace fs = std::filesystem;
 fs::path make_tmpdir(const std::string& tag) {
   static std::mt19937_64 rng{std::random_device{}()};
   const std::string suffix =
-      "_" + tag + "_" + std::to_string(static_cast<long long>(::getpid())) + "_" +
+      "_" + tag + "_" + std::to_string(static_cast<long long>(std::hash<std::thread::id>{}(std::this_thread::get_id()))) + "_" +
       std::to_string(rng());
   fs::path dir = fs::temp_directory_path() / ("asn1cxx_cache_test" + suffix);
   std::error_code ec;
@@ -411,4 +414,111 @@ TEST(EmitCacheSplit, NoCacheStillEmitsAllUnits) {
 
   std::error_code ec;
   fs::remove_all(tmp, ec);
+}
+
+TEST(EmitCacheFlat, OptionsDependenciesAndOutputDamageInvalidate) {
+  const auto tmp = make_tmpdir("invalidation");
+  const auto asn = tmp / "Person.asn", dependency = tmp / "dependency.asn";
+  write_file(asn, kPersonAsn);
+  write_file(dependency, "dependency revision 1");
+  asn1::Diagnostics parsed;
+  const auto model = build_model(asn, parsed);
+  ASSERT_TRUE(parsed.ok());
+  asn1::codegen::EmitOptions opt;
+  opt.source_paths = {asn, dependency};
+  auto emit = [&] {
+    asn1::Diagnostics d;
+    asn1::codegen::CppGenerator{}.emit_to_dir(model, opt, d, tmp);
+    EXPECT_TRUE(d.ok());
+    return latest_cache_stats(d).hits;
+  };
+  EXPECT_EQ(emit(), 0u); EXPECT_EQ(emit(), 1u);
+  opt.namespace_name = "changed";
+  EXPECT_EQ(emit(), 0u); EXPECT_EQ(emit(), 1u);
+  opt.codec = asn1::codegen::CodecKind::Ber;
+  EXPECT_EQ(emit(), 0u);
+  opt.emit_inline = false;
+  EXPECT_EQ(emit(), 0u);
+  write_file(dependency, "dependency revision 2");
+  EXPECT_EQ(emit(), 0u); EXPECT_EQ(emit(), 1u);
+  write_file(tmp / "generated.hpp", "corrupted output");
+  EXPECT_EQ(emit(), 0u);
+  fs::remove(tmp / "generated.cpp");
+  EXPECT_EQ(emit(), 0u);
+  // Simulate a cache produced by another generator revision.
+  auto metadata = read_file(tmp / ".asn1cxx-cache/default.cache");
+  ASSERT_GE(metadata.size(), 64u);
+  metadata.replace(0, 64, 64, '0');
+  write_file(tmp / ".asn1cxx-cache/default.cache", metadata);
+  EXPECT_EQ(emit(), 0u);
+  fs::remove(dependency);
+  EXPECT_EQ(emit(), 0u); EXPECT_EQ(emit(), 0u);
+  fs::remove_all(tmp);
+}
+
+TEST(EmitCacheFlat, MissingProvenanceNeverReusesProgrammaticModel) {
+  const auto tmp = make_tmpdir("model");
+  const auto asn = tmp / "Person.asn";
+  write_file(asn, kPersonAsn);
+  asn1::Diagnostics d;
+  auto first = build_model(asn, d);
+  asn1::codegen::EmitOptions opt;
+  asn1::codegen::CppGenerator{}.emit_to_dir(first, opt, d, tmp);
+  auto before = read_file(tmp / "generated.hpp");
+  write_file(asn, "M DEFINITIONS ::= BEGIN Different ::= BOOLEAN END");
+  auto second = build_model(asn, d);
+  asn1::codegen::CppGenerator{}.emit_to_dir(second, opt, d, tmp);
+  EXPECT_TRUE(d.ok());
+  EXPECT_NE(before, read_file(tmp / "generated.hpp"));
+  EXPECT_EQ(count_cache_notes(d), 0u);
+  EXPECT_TRUE(asn1::codegen::sha256_file_hex(tmp).empty());
+  fs::remove_all(tmp);
+}
+
+TEST(EmitCacheFlat, InputOrderMustMatchUncachedOutput) {
+  const auto tmp = make_tmpdir("source_order");
+  const auto a = tmp / "a.asn", b = tmp / "b.asn";
+  write_file(a, "A DEFINITIONS ::= BEGIN Alpha ::= SEQUENCE { n INTEGER (0..255) } END");
+  write_file(b, "B DEFINITIONS ::= BEGIN Beta ::= SEQUENCE { yes BOOLEAN } END");
+  auto model_for = [&](const std::vector<fs::path>& paths, asn1::Diagnostics& d) {
+    std::vector<asn1::SourceFile> files;
+    files.reserve(paths.size());
+    for (const auto& path : paths) {
+      auto file = asn1::SourceFile::from_path(path.string());
+      EXPECT_TRUE(file.ok());
+      files.push_back(std::move(file.value()));
+    }
+    std::vector<std::unique_ptr<asn1::ast::Module>> modules;
+    for (auto& file : files) {
+      asn1::Lexer lexer(file, d);
+      asn1::Parser parser(lexer, d);
+      auto parsed = parser.parse_modules();
+      for (auto& module : parsed) modules.push_back(std::move(module));
+    }
+    return asn1::Analyzer(d).analyze(std::move(modules));
+  };
+  asn1::codegen::EmitOptions options;
+  options.source_paths = {a, b};
+  asn1::Diagnostics first;
+  auto ab = model_for(options.source_paths, first);
+  asn1::codegen::CppGenerator{}.emit_to_dir(ab, options, first, tmp / "cached");
+  ASSERT_TRUE(first.ok());
+  options.source_paths = {b, a};
+  asn1::Diagnostics second;
+  auto ba = model_for(options.source_paths, second);
+  asn1::codegen::CppGenerator{}.emit_to_dir(ba, options, second, tmp / "cached");
+  ASSERT_TRUE(second.ok());
+  EXPECT_EQ(latest_cache_stats(second).hits, 0u);
+  options.emit_cache = false;
+  asn1::Diagnostics fresh;
+  asn1::codegen::CppGenerator{}.emit_to_dir(ba, options, fresh, tmp / "fresh");
+  ASSERT_TRUE(fresh.ok());
+  EXPECT_EQ(read_file(tmp / "cached/generated.hpp"), read_file(tmp / "fresh/generated.hpp"));
+  EXPECT_EQ(read_file(tmp / "cached/generated.cpp"), read_file(tmp / "fresh/generated.cpp"));
+  options.emit_cache = true;
+  asn1::Diagnostics same;
+  asn1::codegen::CppGenerator{}.emit_to_dir(ba, options, same, tmp / "cached");
+  EXPECT_TRUE(same.ok());
+  EXPECT_EQ(latest_cache_stats(same).hits, 1u);
+  fs::remove_all(tmp);
 }

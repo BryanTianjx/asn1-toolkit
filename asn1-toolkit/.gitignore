@@ -2,7 +2,7 @@
 /build/
 /build-san/
 /build-vs/
-/build-rev1-*/
+/build-rev*/
 /cmake-build-*/
 /out/
 /compile_commands.json

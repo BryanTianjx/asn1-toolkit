@@ -784,6 +784,8 @@ class Emitter {
  private:
   const ir::Model& model_;
   EmitOptions options_;
+  CodecKind active_xml_codec_ = CodecKind::Xer;
+  CodecKind active_oer_codec_ = CodecKind::Oer;
   Diagnostics& diag_;
   std::vector<ir::TypeId> named_order_;
   std::unordered_set<ir::TypeId> named_set_;

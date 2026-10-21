@@ -88,6 +88,13 @@ void Emitter::emit_jer_codec_fns(std::ostream& out, ir::TypeId id) {
                 "& value)");
     emit_jer_decode_body(*body, t, "value", "v", "  ");
     *body << "  return asn1::Result<void>::success();\n}\n\n";
+    if ((options_.codec & CodecKind::Jeri) != CodecKind::None) {
+      body = begin_codec_fn(out, "asn1::Result<asn1::jer::Value> encode_jeri(const " + name + "& value)");
+      *body << "  return encode_jer(value);\n}\n\n";
+      body = begin_codec_fn(out, "asn1::Result<void> decode_jeri(const asn1::jer::Value& v, " + name + "& value)");
+      *body << "  return decode_jer(v, value);\n}\n\n";
+    }
+
   }
 
 void Emitter::emit_jer_encode_call(std::ostream& out, const ir::Type& ft, const std::string& expr,

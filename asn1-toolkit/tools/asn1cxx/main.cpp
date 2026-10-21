@@ -64,6 +64,7 @@ std::optional<asn1::codegen::CodecKind> parse_codec_item(std::string_view v) {
   if (v == "per") {
     return asn1::codegen::CodecKind::Per;
   }
+  if (v == "jeri") return asn1::codegen::CodecKind::Jeri;
   if (v == "jer") {
     return asn1::codegen::CodecKind::Jer;
   }
@@ -113,7 +114,7 @@ void print_usage(std::ostream& out) {
       << "  --dump-ast              Parse each file and print the AST\n"
       << "  --dump-ir               Parse + analyze and print the type IR\n"
       << "  --emit-dir <dir>        Emit generated.hpp / generated.cpp into <dir>\n"
-      << "  --codec <uper|aper|per|ber|der|cer|jer|xer|exer|oer|coer|cxer>\n"
+      << "  --codec <uper|aper|per|ber|der|cer|jer|jeri|xer|exer|oer|coer|cxer>\n"
       << "                         Comma-separated combination (e.g. uper,ber)\n"
       << "                         Codec for --emit-dir (default: uper)\n"
       << "  --namespace <id>        C++ namespace for generated types (default: asn1_gen)\n"
@@ -445,7 +446,7 @@ int main(int argc, char** argv) {
     if (arg == "--codec") {
       if (i + 1 >= argc) {
         std::cerr << "asn1cxx: --codec requires a comma-separated list of "
-                     "uper|aper|per|ber|der|cer|jer|xer|exer|oer|coer|cxer\n";
+                     "uper|aper|per|ber|der|cer|jer|jeri|xer|exer|oer|coer|cxer\n";
         return EXIT_FAILURE;
       }
       const std::string_view v = argv[++i];

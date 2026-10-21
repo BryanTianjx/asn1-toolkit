@@ -1,6 +1,9 @@
 #pragma once
 
 #include <future>
+#include <algorithm>
+#include <cstddef>
+#include <vector>
 #include <system_error>
 #include <utility>
 
@@ -23,6 +26,27 @@ auto async_or_deferred(F work) -> std::future<decltype(work())> {
   return async_or_deferred(std::move(work), [](auto task) {
     return std::async(std::launch::async, std::move(task));
   });
+}
+
+// Bounded batches retain input order, including deferred launch fallback.
+// Merge only after every task in the batch has completed.
+template <typename Work, typename Merge>
+void bounded_ordered(std::size_t count, std::size_t limit, Work work, Merge merge) {
+  limit = std::max<std::size_t>(1, limit);
+  using R = decltype(work(std::size_t{}));
+  for (std::size_t first = 0; first < count;) {
+    const auto size = std::min(limit, count - first);
+    std::vector<std::future<R>> pending;
+    pending.reserve(size);
+    for (std::size_t i = 0; i < size; ++i) {
+      pending.emplace_back(async_or_deferred([&, index = first + i] { return work(index); }));
+    }
+    std::vector<R> results;
+    results.reserve(size);
+    for (auto& future : pending) results.emplace_back(future.get());
+    for (auto& result : results) merge(std::move(result));
+    first += size;
+  }
 }
 
 }  // namespace detail

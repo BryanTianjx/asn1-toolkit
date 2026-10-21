@@ -22,6 +22,7 @@
 ** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
+#include "generator_revision.hpp"
 #include "emit_internal.hpp"
 
 #include <asn1/codegen/sha256.hpp>
@@ -541,7 +542,7 @@ std::string Emitter::type_cpp(ir::TypeId id, bool for_optional) {
    *  Returns     : void
    */
 void Emitter::emit_includes(std::ostream& out) {
-    const bool emit_jer = (options_.codec & CodecKind::Jer) != CodecKind::None;
+    const bool emit_jer = (options_.codec & (CodecKind::Jer | CodecKind::Jeri)) != CodecKind::None;
     const bool emit_xml = (options_.codec &
                            (CodecKind::Xer | CodecKind::Exer | CodecKind::Cxer)) !=
                           CodecKind::None;
@@ -645,7 +646,7 @@ void Emitter::emit_types_and_codecs(std::ostream& out, const std::vector<ir::Typ
    *  Returns     : void
    */
 void Emitter::emit_type_codecs(std::ostream& out, ir::TypeId id) {
-    const bool emit_jer = (options_.codec & CodecKind::Jer) != CodecKind::None;
+    const bool emit_jer = (options_.codec & (CodecKind::Jer | CodecKind::Jeri)) != CodecKind::None;
     const bool emit_xml = (options_.codec &
                            (CodecKind::Xer | CodecKind::Exer | CodecKind::Cxer)) !=
                           CodecKind::None;
@@ -666,10 +667,18 @@ void Emitter::emit_type_codecs(std::ostream& out, ir::TypeId id) {
       emit_jer_codec_fns(out, id);
     }
     if (emit_xml) {
-      emit_xer_codec_fns(out, id);
+      for (auto codec : {CodecKind::Xer, CodecKind::Exer, CodecKind::Cxer}) {
+        if ((options_.codec & codec) == CodecKind::None) continue;
+        active_xml_codec_ = codec;
+        emit_xer_codec_fns(out, id);
+      }
     }
     if (emit_oer) {
-      emit_oer_codec_fns(out, id);
+      for (auto codec : {CodecKind::Oer, CodecKind::Coer}) {
+        if ((options_.codec & codec) == CodecKind::None) continue;
+        active_oer_codec_ = codec;
+        emit_oer_codec_fns(out, id);
+      }
     }
     if ((options_.codec & CodecKind::Ber) != CodecKind::None) {
       emit_tlv_codec_fns(out, id, TlvKind::Ber);
@@ -1559,14 +1568,23 @@ std::vector<std::string> Emitter::cache_extra_inputs() const {
   }
   std::vector<std::string>& out = cache_extras_cached_;
   // Codec bitmask + basename + namespace_name + emit_inline + emit_split
-  // distinguish every distinct emit. cli_version is a forward-compat hook:
-  // if the cache format changes, bump this and old entries naturally miss.
+  // distinguish output options. The build-generated content identity also
+  // invalidates entries when compiler implementation or headers change.
   out.push_back("codec=" + std::to_string(static_cast<unsigned>(options_.codec)));
   out.push_back("basename=" + options_.basename);
   out.push_back("namespace=" + options_.namespace_name);
   out.push_back("emit_inline=" + std::to_string(options_.emit_inline ? 1 : 0));
   out.push_back("emit_split=" + std::to_string(options_.emit_split ? 1 : 0));
-  out.push_back("cli_version=asn1cxx-0.1.0");
+  // Module order affects declaration order and generated anonymous names.
+  // Hashes below describe source contents; retain the caller's order as well.
+  std::string source_order;
+  for (const auto& path : options_.source_paths) {
+    const auto name = path.string();
+    source_order += std::to_string(name.size()) + ":" + name;
+  }
+  out.push_back("source_order=" + sha256_hex(source_order));
+  out.push_back("cache_format=2");
+  out.push_back("generator=" ASN1_GENERATOR_REVISION);
   cache_extras_valid_ = true;
   return out;
 }
@@ -1619,11 +1637,16 @@ ContentCache* Emitter::cache_init() {
   if (cache_) {
     return cache_.get();
   }
-  if (!options_.emit_cache) {
+  // Without source provenance a caller may mutate IR independently. Re-emit
+  // rather than using an incomplete debug-print serialization as a key.
+  if (!options_.emit_cache || options_.source_paths.empty()) {
     return nullptr;
   }
   if (options_.emit_dir.empty()) {
     return nullptr;
+  }
+  for (const auto& source : cache_source_hashes()) {
+    if (source.second.empty()) return nullptr;
   }
   cache_ = std::make_unique<ContentCache>(options_.emit_dir);
   return cache_.get();

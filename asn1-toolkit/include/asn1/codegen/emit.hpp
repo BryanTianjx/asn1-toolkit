@@ -79,6 +79,9 @@ enum class CodecKind : unsigned {
   // constraint-driven layout make this the most complex.
   Uper = 1 << 10,
 
+  // Project JER-with-instructions entry; same X.697 transfer syntax as Jer.
+  Jeri = 1 << 11,
+
   // Combination alias: the two PER variants at once.
   Per = Aper | Uper,
 };
@@ -121,7 +124,8 @@ struct EmitOptions {
   /// P2-3: source ASN.1 paths (absolute) that contribute to this emit.
   /// When `emit_cache` is true, the content sha256 of these files is
   /// folded into the cache key. The CLI passes the user-supplied `.asn`
-  /// inputs here; tests can leave it empty to disable source-keying.
+  /// inputs here; API callers must supply all contributing source dependencies.
+  /// Empty source_paths disables caching to prevent stale programmatic IR.
   std::vector<std::filesystem::path> source_paths;
   /// P2-3: output directory. When `emit_cache` is true, the cache is read
   /// from and written to `<emit_dir>/.asn1cxx-cache/`; expected output

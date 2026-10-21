@@ -33,7 +33,7 @@ namespace codegen {
    *  Returns     : bool
    */
 bool Emitter::oer_use_coer() const {
-    return (options_.codec & CodecKind::Coer) != CodecKind::None;
+    return active_oer_codec_ == CodecKind::Coer;
   }
 
   /**

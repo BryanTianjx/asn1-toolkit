@@ -222,8 +222,10 @@ class CppGenerator {
 ## 编解码抽象
 
 共享基础：`ByteReader` / `ByteWriter`、`BitReader` / `BitWriter`。
-CLI 层可选 12 个 codec 别名：`uper` / `aper` / `per` / `ber` / `der` / `cer` /
-`oer` / `coer` / `xer` / `cxer` / `exer` / `jer`（`jeri` 无 CLI 别名，是指令层）。
+CLI 提供 12 个产品入口：`uper` / `aper` / `ber` / `der` / `cer` /
+`oer` / `coer` / `xer` / `cxer` / `exer` / `jer` / `jeri`。`per` 额外作为
+`uper,aper` 组合别名，不占独立位。JERI 是项目的 JER 指令入口，不是标准 canonical JSON；
+与 JER 共用 X.697 线路语法和已有后端，见 [入口登记](codec-entries.md)。
 
 ### TLV 家族（BER / DER / CER）
 

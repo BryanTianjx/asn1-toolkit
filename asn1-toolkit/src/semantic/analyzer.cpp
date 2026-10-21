@@ -1906,22 +1906,14 @@ void Analyzer::declare_pass(int parallelism) {
     SymbolTable syms;
     Diagnostics diag;
   };
-  std::vector<std::future<WorkerResult>> futs;
-  futs.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    futs.emplace_back(detail::async_or_deferred([this, i]() -> WorkerResult {
-      WorkerResult r;
-      if (modules_[i]) {
-        declare_module_into(*modules_[i], r.syms, r.diag);
-      }
-      return r;
-    }));
-  }
-  for (auto& f : futs) {
-    WorkerResult r = f.get();
+  detail::bounded_ordered(n, workers, [this](std::size_t i) {
+    WorkerResult r;
+    if (modules_[i]) declare_module_into(*modules_[i], r.syms, r.diag);
+    return r;
+  }, [this](WorkerResult r) {
     symbols_.merge(std::move(r.syms));
     diagnostics_.merge(std::move(r.diag));
-  }
+  });
 
   // Useful object classes — serial; cross-module visibility needed.
   for (auto& mod_ptr : modules_) {
@@ -1941,7 +1933,6 @@ void Analyzer::declare_pass(int parallelism) {
       symbols_.declare(std::move(s), diagnostics_);
     }
   }
-  (void)workers;  // future: chunked scheduling
 }
 
 /**
@@ -2020,10 +2011,8 @@ void Analyzer::resolve_pass(int parallelism) {
   // (read-only), so multiple workers can share the table. Diagnostics land
   // locally and the orchestrator merges in module index order.
   const std::size_t n = modules_.size();
-  std::vector<std::future<Diagnostics>> futs;
-  futs.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    futs.emplace_back(detail::async_or_deferred([this, i]() -> Diagnostics {
+  detail::bounded_ordered(n, static_cast<std::size_t>(parallelism),
+    [this](std::size_t i) -> Diagnostics {
       Diagnostics d;
       if (modules_[i]) {
         const ast::Module& mod = *modules_[i];
@@ -2049,11 +2038,7 @@ void Analyzer::resolve_pass(int parallelism) {
         }
       }
       return d;
-    }));
-  }
-  for (auto& f : futs) {
-    diagnostics_.merge(f.get());
-  }
+    }, [this](Diagnostics d) { diagnostics_.merge(std::move(d)); });
 }
 
 /**
@@ -2341,15 +2326,20 @@ void Analyzer::lower_pass(int /*parallelism*/) {
     info.jer_instructions = mod.jer_instructions();
     info.xer_instructions = mod.xer_instructions();
     for (const auto& clause : mod.jer_encoding_control()) {
-      if (clause.target == ast::EncodingControlTarget::OctetString &&
-          clause.instruction.kind == ast::EncodingInstructionKind::Base64) {
-        for (std::size_t ti = 0; ti < model_.arena.type_count(); ++ti) {
-          ir::Type& ot = model_.arena.get(static_cast<ir::TypeId>(ti));
-          if (ot.module == mod.name() && ot.kind == ir::TypeKind::OctetString &&
-              !ot.jer.base64) {
-            ot.jer.base64 = true;
-          }
-        }
+      const bool base64 = clause.target == ast::EncodingControlTarget::OctetString &&
+                          clause.instruction.kind == ast::EncodingInstructionKind::Base64;
+      const bool array = clause.target == ast::EncodingControlTarget::Sequence &&
+                         clause.instruction.kind == ast::EncodingInstructionKind::Array;
+      if (!base64 && !array) {
+        diagnostics_.error(clause.range,
+                           "unsupported JER ENCODING-CONTROL instruction/target");
+        continue;
+      }
+      for (std::size_t ti = 0; ti < model_.arena.type_count(); ++ti) {
+        ir::Type& type = model_.arena.get(static_cast<ir::TypeId>(ti));
+        if (type.module != mod.name()) continue;
+        if (base64 && type.kind == ir::TypeKind::OctetString) type.jer.base64 = true;
+        if (array && type.kind == ir::TypeKind::Sequence) type.jer.array = true;
       }
     }
     for (const auto& clause : mod.xer_encoding_control()) {

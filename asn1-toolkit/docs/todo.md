@@ -369,7 +369,7 @@ emit 端、动 codec 输出形态、不动 runtime 语义）。归 P2-4。
 | 3 | `src/codegen/emit_c/` emitter（仿 `emit_per.cpp` 拆分）：每 codec 一个 emit_c_*.cpp，输出 C 函数（C linkage，不带 `extern "C++"`） | 8 h | emit 输出 `gcc -std=c11 -Wall -Wextra -c -fsyntax-only` 零错误 |
 | 4 | `asn1cxx --lang c` CLI + `EmitOptions::lang` 字段；`emit_c_toplevel.cpp` 调度 | 2 h | `--lang c` 在 LPP / S1AP / RRC 三 fixture × 5 codec 跑通；无 C++ 串味 |
 | 5 | `tests/c_lang/c_emit_test.cpp`：fork `cc` 编译生成的 C 代码 + 跑 encode/decode round-trip + 比对 `tests/per/golden/` `tests/tlv/golden/` 既有 oracle；LPP / S1AP / RRC × 5 codec 字节级对验 | 6 h | Release **344/344 + N** + sanitizer **344/344 + N**；零 ASan/UBSan |
-| 6 | fixture compile gate：`asn1_c_lpp_{uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer}_compile` 12 个 + 同 split 模式 — N 个新 gate | 4 h | ctest 全过 |
+| 6 | fixture compile gate：`asn1_c_lpp_{uper,aper,ber,der,cer,oer,coer,jer,jeri,xer,exer,cxer}_compile` 12 个 + 同 split 模式 — N 个新 gate | 4 h | ctest 全过 |
 | 7 | P1-3 oracle 复用：`-lang c` 与 `-lang cpp` 在同一 oracle 下 byte-equal（per_golden + tlv_golden + P1-3 协议级 oracle）；合并进 P1-3 验证清单 | 2 h | oracle byte-equal 通过；避免两套 oracle 分叉 |
 | 8 | sanitizer（ASan + UBSan）+ Release 全量 ctest 必过；新增 C runtime 走 `-fsanitize=address,undefined` 仍零报错 | 2 h | Release **344/344 + N** + sanitizer **344/344 + N** |
 | 9 | 文档：`status.md` 「剩余工作」表新增 P2-4 行（指向 todo.md）；`changelog.md` P2-4 条目 + Phase 里程碑表新增 Phase 49；`docs/architecture.md` 新增「目标语言维度」段落（runtime C/C++ 平行设计）；`usage-guide.md` 加 C 集成示例 | 2 h | 文档审阅 |

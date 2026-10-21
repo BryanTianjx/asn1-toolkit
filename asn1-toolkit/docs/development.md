@@ -129,12 +129,12 @@ g++ -std=c++17 -fsyntax-only /tmp/genchk/generated.cpp \
 
 共享辅助函数（`default_val_cpp` / `type_cpp` 等被全家族调用的 ~11 个成员）
 的签名改动，单 codec 检查不够 —— CMake fixture 门只链 fixture 主 codec，
-其余家族的产物由任何东西验证。改共享面前必须用全 codec 位掩码 emit 各大
+其余家族的产物不能仅由该门禁证明。改共享面前必须用全 codec 位掩码 emit 各大
 fixture 并 `-fsyntax-only`：
 
 ```bash
 ./build/asn1cxx --emit-dir /tmp/genchk_all --codec \
-    uper,aper,per,ber,der,cer,oer,coer,jer,xer,exer,cxer --namespace ns \
+    uper,aper,ber,der,cer,oer,coer,jer,jeri,xer,exer,cxer --namespace ns \
     tests/fixtures/telecom/rrc_8_6_0/EUTRA-RRC-Definitions.asn
 g++ -std=c++17 -fsyntax-only /tmp/genchk_all/generated.cpp \
     -I/tmp/genchk_all -Iinclude
@@ -196,13 +196,16 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
 1. **一份事实一处权威**：设计 → architecture.md；操作 → usage-guide.md；
    状态 → status.md；历史 → changelog.md；对比 → comparison.md；
    工程纪律 → development.md；README 只做速览与链接；
-2. **同一数字多处出现时全局替换**：测试总数（344）、codec 数（12）、
-   fixture 数（7）等出现在 README / architecture / status / changelog /
-   comparison 多处，改数后 grep 全套文档统一；
+2. **同步当前数字，保留历史证据**：测试总数、产品入口数、fixture 数变化时，
+   检索 README / status / comparison 等当前说明并统一口径；带日期的验收记录、
+   changelog 历史条目和分析快照保留当时数字，不做全局替换；
 3. **变更收尾动作**：changelog.md 追加条目（含验证口径），status.md 同步
    状态表，若涉及 CLI/产物形态同步 usage-guide.md；
 4. **历史归档不追改**：`docs/analysis/` 是带日期的快照，只在新归档时新增，
    不修改既有快照内容。
+5. **项目 skill 随修更新**：每批 REV 修正同时检查
+   [asn1-remediation/SKILL.md](skills/asn1-remediation/SKILL.md)，同步已验证的
+   操作约束、回归选择和文档入口；任务状态及测试数量仍留在对应权威文档中。
 
 ## 分支与提交
 
@@ -211,3 +214,26 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
 - 提交信息使用简洁的英文祈使句（历史惯例，如 "Fix emitted-code defects
   found by all-codec fixture compile gates"）；
 - 每次提交前完成文档同步纪律的第 3 条。
+
+
+### 第四批新增可重复门禁
+
+```sh
+# 84 个单独选择的产物；不是把 per 当第 12 个规则
+cmake --build build --target asn1_codec_matrix
+# 新目录安装后，C / runtime-only / compiler-only / 宿主生成消费者真实运行
+python3 scripts/validate_installed_package.py --build build --output build/package-check
+```
+
+`CodecEntry.*` 在默认测试中逐入口实际链接调用，并比较单入口与组合的三种产物
+编码结果。7×12 门禁是独立目标，适合 CI 显式运行；它只证明语法，独立 oracle
+能力仍按 [入口登记](codec-entries.md) 和后续 REV-20/24 核实。
+
+生成器指纹失效的集成回归必须使用**独立且未在构建中的 compiler-only 目录**：
+
+```sh
+python3 scripts/validate_generator_revision.py --build build-compiler
+```
+
+它临时修改该构建的私有生成头并重建，验证相同 ASN.1 从 hit 变为 miss，最后
+恢复原头并重建。它不修改仓库源码，不能和该目录的其他构建并发运行。

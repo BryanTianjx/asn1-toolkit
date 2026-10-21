@@ -173,7 +173,7 @@ std::string ContentCache::compute_key(const std::string& unit_name,
             });
   for (const auto& p : sorted_paths) {
     concat.append("src:");
-    concat.append(p.string());
+    concat.append(std::to_string(p.string().size()) + ":" + p.string());
     concat.push_back('=');
     // Reuse a precomputed source hash when the caller has one — the same
     // .asn file otherwise gets SHA-256'd on every per-unit call (once for
@@ -197,7 +197,7 @@ std::string ContentCache::compute_key(const std::string& unit_name,
   }
   for (const std::string& s : extra_inputs) {
     concat.append("opt:");
-    concat.append(s);
+    concat.append(std::to_string(s.size()) + ":" + s);
     concat.push_back('|');
   }
   return sha256_hex(concat);

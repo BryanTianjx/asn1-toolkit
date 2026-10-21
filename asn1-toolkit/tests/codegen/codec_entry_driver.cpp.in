@@ -1,0 +1,26 @@
+#include "generated.hpp"
+#include <iostream>
+#include <string>
+#include <vector>
+namespace entry = @GATE_NAMESPACE@;
+std::string hex(const std::vector<std::uint8_t>& bytes) {
+  std::string out;
+  for (auto b : bytes) { out += "0123456789abcdef"[b >> 4]; out += "0123456789abcdef"[b & 15]; }
+  return out;
+}
+#define CHECK(expr) do { if (!(expr)) return 1; } while (0)
+#define VERIFY() CHECK(decoded.count == value.count && decoded.enabled == value.enabled && decoded.text == value.text)
+#define BINARY(codec, Writer, Reader) { \
+  asn1::Writer writer; CHECK(entry::encode_##codec(writer, value)); \
+  auto bytes = writer.take(); asn1::Reader reader(bytes); entry::Record decoded{}; \
+  CHECK(entry::decode_##codec(reader, decoded)); VERIFY(); \
+  std::cout << #codec << ":" << hex(bytes) << "\n"; }
+#define TREE(codec, ns) { \
+  auto encoded = entry::encode_##codec(value); CHECK(encoded); entry::Record decoded{}; \
+  CHECK(entry::decode_##codec(encoded.value(), decoded)); VERIFY(); \
+  std::cout << #codec << ":" << asn1::ns::to_string(encoded.value()) << "\n"; }
+int main() {
+  entry::Record value{}; value.count = 42; value.enabled = true; value.text = "ASN1";
+@GATE_CALLS@
+  return 0;
+}

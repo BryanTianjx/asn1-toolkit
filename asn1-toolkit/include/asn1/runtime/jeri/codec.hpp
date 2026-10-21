@@ -13,9 +13,9 @@
 ***************************************************************************
 **  File Description:
 **
-**   Canonical JER (JERI) codec API.
+**   JER encoding-instruction helpers (project name JERI).
 **
-** Specification: ITU-T X.697 — Canonical JSON Encoding Rules (JERI).
+** Specification: ITU-T X.697 (02/2021), JER and encoding instructions.
 ** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/
@@ -32,8 +32,8 @@
 namespace asn1 {
 namespace jeri {
 
-/// JER encoding-instruction effects on the BASIC-JER Value tree (X.697).
-/// Frontend parsing of `[ARRAY]` / ENCODING-CONTROL JER remains later.
+/// JER encoding-instruction effects on the JER Value tree (X.697).
+/// Parsing/lowering belongs to the compiler; runtime consumes Value trees only.
 using jer::BitStringValue;
 using jer::Value;
 using jer::ValueKind;

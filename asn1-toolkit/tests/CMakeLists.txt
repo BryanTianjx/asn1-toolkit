@@ -4,10 +4,15 @@ include(FetchContent)
 # without network access, e.g.
 #   cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "Do not install private test dependencies" FORCE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+  set(_extract_timestamp DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
 FetchContent_Declare(
   googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  URL_HASH SHA256=1f357c27ca988c3f7c6b4bf68a9395005ac6761f034046e9dde0896e3aba00e4
+  ${_extract_timestamp}
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -98,10 +103,10 @@ gtest_discover_tests(asn1_per_tests)
 set(ASN1_PER_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_per_golden")
 add_custom_command(
   OUTPUT "${ASN1_PER_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_PER_GOLDEN_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --no-emit-cache --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec per
+  COMMAND "${ASN1_GENERATOR}" --no-emit-cache --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec per
           --namespace pg
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
   COMMENT "Generating UPER/APER C++ for telecom per_golden.asn"
   VERBATIM
 )
@@ -172,9 +177,9 @@ macro(asn1_gen_person codec ns subdir)
   set(_outdir "${ASN1_PERSON_GEN_ROOT}/${subdir}")
   add_custom_command(
     OUTPUT "${_outdir}/generated.hpp" "${_outdir}/generated.cpp"
-    COMMAND asn1cxx --emit-dir "${_outdir}" --codec ${codec} --namespace ${ns}
+    COMMAND "${ASN1_GENERATOR}" --emit-dir "${_outdir}" --codec ${codec} --namespace ${ns}
             "${ASN1_PERSON_ASN}"
-    DEPENDS asn1cxx "${ASN1_PERSON_ASN}"
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${ASN1_PERSON_ASN}"
     COMMENT "Generating ${codec} C++ for examples/person.asn (${ns})"
     VERBATIM
   )
@@ -200,9 +205,9 @@ gtest_discover_tests(asn1_codegen_roundtrip_tests)
 set(ASN1_RRC_SLICE_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_rrc_slice")
 add_custom_command(
   OUTPUT "${ASN1_RRC_SLICE_OUT_DIR}/generated.hpp" "${ASN1_RRC_SLICE_OUT_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_RRC_SLICE_OUT_DIR}" --codec uper
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_RRC_SLICE_OUT_DIR}" --codec uper
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
   COMMENT "Generating UPER C++ for telecom rrc_slice.asn"
   VERBATIM
 )
@@ -219,10 +224,10 @@ gtest_discover_tests(asn1_telecom_roundtrip_tests)
 set(ASN1_TLV_OER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tlv_oer_golden")
 add_custom_command(
   OUTPUT "${ASN1_TLV_OER_GEN_DIR}/generated.hpp" "${ASN1_TLV_OER_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_TLV_OER_GEN_DIR}" --codec ber,der,oer,jer
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_TLV_OER_GEN_DIR}" --codec ber,der,oer,jer
           --namespace asn1_tlv_oer
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_oer_golden.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_oer_golden.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_oer_golden.asn"
   COMMENT "Generating BER/DER/OER/JER C++ for telecom tlv_oer_golden.asn"
   VERBATIM
 )
@@ -244,10 +249,10 @@ gtest_discover_tests(asn1_tlv_oer_golden_tests)
 set(ASN1_TLV_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tlv_golden")
 add_custom_command(
   OUTPUT "${ASN1_TLV_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_TLV_GOLDEN_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_TLV_GOLDEN_GEN_DIR}" --codec ber,der,oer
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_TLV_GOLDEN_GEN_DIR}" --codec ber,der,oer
           --namespace tg
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_golden.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_golden.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/tlv_golden.asn"
   COMMENT "Generating BER/DER/OER C++ for telecom tlv_golden.asn"
   VERBATIM
 )
@@ -269,10 +274,10 @@ gtest_discover_tests(asn1_tlv_golden_tests)
 set(ASN1_CER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_cer_golden")
 add_custom_command(
   OUTPUT "${ASN1_CER_GEN_DIR}/generated.hpp" "${ASN1_CER_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_CER_GEN_DIR}" --codec cer,der
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_CER_GEN_DIR}" --codec cer,der
           --namespace asn1_cer
           "${CMAKE_SOURCE_DIR}/tests/fixtures/cer/cer_golden.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/cer/cer_golden.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/cer/cer_golden.asn"
   COMMENT "Generating CER/DER C++ for cer_golden.asn"
   VERBATIM
 )
@@ -289,9 +294,9 @@ gtest_discover_tests(asn1_cer_roundtrip_tests)
 set(ASN1_IOC_JER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_ioc_jer")
 add_custom_command(
   OUTPUT "${ASN1_IOC_JER_OUT_DIR}/generated.hpp" "${ASN1_IOC_JER_OUT_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_IOC_JER_OUT_DIR}" --codec jer
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_IOC_JER_OUT_DIR}" --codec jer
           --namespace asn1_ioc_jer "${CMAKE_SOURCE_DIR}/examples/ioc.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/examples/ioc.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/examples/ioc.asn"
   COMMENT "Generating JER C++ for examples/ioc.asn (object-class open types)"
   VERBATIM
 )
@@ -311,10 +316,10 @@ gtest_discover_tests(asn1_ioc_jer_roundtrip_tests)
 set(ASN1_TC_IE_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tc_ie")
 add_custom_command(
   OUTPUT "${ASN1_TC_IE_OUT_DIR}/generated.hpp" "${ASN1_TC_IE_OUT_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_TC_IE_OUT_DIR}" --codec uper
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_TC_IE_OUT_DIR}" --codec uper
           --namespace tc_test
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/table_constraint_ie.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/table_constraint_ie.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/table_constraint_ie.asn"
   COMMENT "Generating UPER C++ for telecom table_constraint_ie.asn"
   VERBATIM
 )
@@ -330,9 +335,9 @@ gtest_discover_tests(asn1_tc_ie_roundtrip_tests)
 set(ASN1_RRC_SLICE_OER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_rrc_slice_oer")
 add_custom_command(
   OUTPUT "${ASN1_RRC_SLICE_OER_DIR}/generated.hpp" "${ASN1_RRC_SLICE_OER_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_RRC_SLICE_OER_DIR}" --codec oer --namespace asn1_rrc_oer
+  COMMAND "${ASN1_GENERATOR}" --emit-dir "${ASN1_RRC_SLICE_OER_DIR}" --codec oer --namespace asn1_rrc_oer
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
-  DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
+  DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/rrc_slice/rrc_slice.asn"
   COMMENT "Generating OER C++ for telecom rrc_slice.asn"
   VERBATIM
 )
@@ -346,13 +351,27 @@ target_link_libraries(asn1_rrc_slice_oer_compile PRIVATE asn1::oer)
 # compiles (emit success != compilable output; these fixtures exercise
 # parameterized IE instantiations, table-constraint typed open types,
 # nested names, and extension enumerations).
+# Re-emit with the current generator, but preserve final file timestamps when
+# bytes are unchanged. Ninja restat then reuses objects for identical output.
+function(asn1_staged_copies stage destination result)
+  set(_commands COMMAND "${CMAKE_COMMAND}" -E make_directory "${destination}")
+  foreach(_file IN LISTS ARGN)
+    list(APPEND _commands COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "${stage}/${_file}" "${destination}/${_file}")
+  endforeach()
+  set(${result} "${_commands}" PARENT_SCOPE)
+endfunction()
+
 macro(asn1_fixture_compile_gate name codec lib fixture)
   set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_${name}")
+  set(_stage "${_dir}.stage")
+  asn1_staged_copies("${_stage}" "${_dir}" _copies generated.hpp generated.cpp)
   add_custom_command(
     OUTPUT "${_dir}/generated.hpp" "${_dir}/generated.cpp"
-    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${codec} --namespace asn1_${name}
+    COMMAND "${ASN1_GENERATOR}" --emit-dir "${_stage}" --codec ${codec} --namespace asn1_${name}
             "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
-    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    ${_copies}
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
     COMMENT "Generating ${codec} C++ for telecom ${fixture} (compile gate)"
     VERBATIM
   )
@@ -363,8 +382,10 @@ macro(asn1_fixture_compile_gate name codec lib fixture)
   # build clean. Drop optimization to -O1 (no -O3 inline expansion across
   # the multi-MB generated .cpp files) for ~2x faster compile on the
   # 3GPP fixtures. Still ABI-compatible with the runtime libs because
-  # -O1 keeps standard calling conventions.
-  target_compile_options(asn1_${name}_compile PRIVATE -O1)
+  # -O1 keeps standard calling conventions. Sanitized compile-only gates
+  # use -g1: retain line information without multi-GB full debug type graphs.
+  target_compile_options(asn1_${name}_compile PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-O1>
+    $<$<AND:$<BOOL:${ASN1_ENABLE_SANITIZERS}>,$<CXX_COMPILER_ID:GNU,Clang>>:-g1>)
 endmacro()
 
 asn1_fixture_compile_gate(rrc_full uper per rrc_8_6_0/EUTRA-RRC-Definitions.asn)
@@ -383,20 +404,23 @@ asn1_fixture_compile_gate(s1ap_full aper per s1ap_14_4_0/s1ap_14_4_0.asn)
 # types and IE references — enough to detect missing includes, link
 # errors, or namespace regressions in any single family.
 set(_all_codec_pairs
-    "uper per" "aper per" "per per"
-    "ber ber" "der per" "cer ber"
-    "oer oer" "coer oer"
-    "jer jer" "xer xer" "exer xer" "cxer xer")
+    "uper per" "aper per" "jeri jeri"
+    "ber ber" "der der" "cer cer"
+    "oer oer" "coer coer"
+    "jer jeri" "xer xer" "exer exer" "cxer cxer")
 foreach(_pair IN LISTS _all_codec_pairs)
   string(REPLACE " " ";" _pair_split "${_pair}")
   list(GET _pair_split 0 _codec)
   list(GET _pair_split 1 _lib)
   set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_lpp_single_${_codec}")
+  set(_stage "${_dir}.stage")
+  asn1_staged_copies("${_stage}" "${_dir}" _copies generated.hpp generated.cpp)
   add_custom_command(
     OUTPUT "${_dir}/generated.hpp" "${_dir}/generated.cpp"
-    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${_codec} --namespace asn1_lpp_single_${_codec}
+    COMMAND "${ASN1_GENERATOR}" --emit-dir "${_stage}" --codec ${_codec} --namespace asn1_lpp_single_${_codec}
             "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn"
-    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn"
+    ${_copies}
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/lpp_14_3_0/LPP-PDU-Definitions.asn"
     COMMENT "Generating single-${_codec} C++ for telecom LPP (single-codec gate)"
     VERBATIM
   )
@@ -405,7 +429,8 @@ foreach(_pair IN LISTS _all_codec_pairs)
   target_link_libraries(asn1_lpp_single_${_codec}_compile PRIVATE asn1::${_lib})
   # Compile gate only — see macro comment above. -O1 shaves ~half the
   # compile time across the 12 single-codec LPP gates.
-  target_compile_options(asn1_lpp_single_${_codec}_compile PRIVATE -O1)
+  target_compile_options(asn1_lpp_single_${_codec}_compile PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-O1>
+    $<$<AND:$<BOOL:${ASN1_ENABLE_SANITIZERS}>,$<CXX_COMPILER_ID:GNU,Clang>>:-g1>)
 endforeach()
 
 # Split emit compile gates (--emit-split): per-module <Module>.hpp/.cpp
@@ -416,15 +441,20 @@ macro(asn1_fixture_split_gate name codec lib fixture)
   set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_split_${name}")
   set(_outs "${_dir}/generated.hpp")
   set(_srcs "")
+  set(_relative_outputs generated.hpp)
+  set(_stage "${_dir}.stage")
   foreach(_stem ${ARGN})
     list(APPEND _outs "${_dir}/${_stem}.hpp" "${_dir}/${_stem}.cpp")
+    list(APPEND _relative_outputs "${_stem}.hpp" "${_stem}.cpp")
     list(APPEND _srcs "${_dir}/${_stem}.cpp")
   endforeach()
+  asn1_staged_copies("${_stage}" "${_dir}" _copies ${_relative_outputs})
   add_custom_command(
     OUTPUT ${_outs}
-    COMMAND asn1cxx --emit-dir "${_dir}" --codec ${codec} --namespace asn1_split_${name}
+    COMMAND "${ASN1_GENERATOR}" --emit-dir "${_stage}" --codec ${codec} --namespace asn1_split_${name}
             --emit-split "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
-    DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
+    ${_copies}
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/${fixture}"
     COMMENT "Generating split ${codec} C++ for telecom ${fixture} (split compile gate)"
     VERBATIM
   )
@@ -436,7 +466,8 @@ macro(asn1_fixture_split_gate name codec lib fixture)
   # Same compile-only -O1 optimisation as the flat fixture gate (the
   # aggregate unit .cpp files for S1AP exceed 1 MB and the bottleneck is
   # -O3's inliner/vectoriser pass).
-  target_compile_options(asn1_split_${name} PRIVATE -O1)
+  target_compile_options(asn1_split_${name} PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-O1>
+    $<$<AND:$<BOOL:${ASN1_ENABLE_SANITIZERS}>,$<CXX_COMPILER_ID:GNU,Clang>>:-g1>)
 endmacro()
 
 # LPP: single module -> one unit file. S1AP: three units (CommonDataTypes,
@@ -447,6 +478,7 @@ asn1_fixture_split_gate(s1ap_split uper per s1ap_14_4_0/s1ap_14_4_0.asn
   S1AP_CommonDataTypes S1AP_PDU_Descriptions S1AP_IEs)
 
 # asn1cxx CLI end-to-end tests (spawn the built asn1cxx binary).
+if(UNIX)
 add_executable(asn1_cli_tests
   codegen/cli_test.cpp
 )
@@ -456,6 +488,7 @@ target_compile_definitions(asn1_cli_tests PRIVATE
 target_link_libraries(asn1_cli_tests PRIVATE GTest::gtest_main)
 add_dependencies(asn1_cli_tests asn1cxx)
 gtest_discover_tests(asn1_cli_tests)
+endif()
 
 # Cross-codec consistency: same value round-trips under every codec.
 add_executable(asn1_cross_codec_tests
@@ -502,9 +535,9 @@ foreach(_mode IN ITEMS outline inline split)
   endif()
   add_custom_command(
     OUTPUT "${_dir}/generated.hpp" "${_cpp}"
-    COMMAND asn1cxx --no-emit-cache --codec exer ${_flags} --emit-dir "${_dir}"
+    COMMAND "${ASN1_GENERATOR}" --no-emit-cache --codec exer ${_flags} --emit-dir "${_dir}"
             "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exer/attributes.asn"
-    DEPENDS asn1cxx "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exer/attributes.asn"
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exer/attributes.asn"
     VERBATIM)
   add_executable(asn1_attributes_${_mode}_tests codegen/exer_attributes_test.cpp "${_cpp}")
   target_include_directories(asn1_attributes_${_mode}_tests PRIVATE "${_dir}")
@@ -514,3 +547,71 @@ foreach(_mode IN ITEMS outline inline split)
   target_link_libraries(asn1_attributes_${_mode}_tests PRIVATE asn1::exer GTest::gtest_main)
   gtest_discover_tests(asn1_attributes_${_mode}_tests TEST_PREFIX "${_mode}.")
 endforeach()
+
+# REV-16: every product entry links against its declared runtime and calls it.
+set(_gate_names "")
+set(_gate_codecs "")
+foreach(_pair IN LISTS _all_codec_pairs)
+  string(REPLACE " " ";" _parts "${_pair}")
+  list(GET _parts 0 _codec)
+  list(APPEND _gate_names "${_codec}")
+endforeach()
+foreach(_entry IN LISTS _gate_names ITEMS combined combined_inline combined_split)
+  set(_flags "")
+  set(_codecs "${_entry}")
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/entry_${_entry}")
+  set(_cpp "${_dir}/generated.cpp")
+  set(GATE_NAMESPACE "gate")
+  if(_entry MATCHES "^combined")
+    set(_codecs "${_gate_names}")
+  endif()
+  if(_entry STREQUAL "combined_inline")
+    set(_flags --emit-inline)
+  elseif(_entry STREQUAL "combined_split")
+    set(_flags --emit-split)
+    set(_cpp "${_dir}/Entries.cpp")
+    set(GATE_NAMESPACE "gate::Entries")
+  endif()
+  set(GATE_CALLS "")
+  set(_libs "")
+  foreach(_codec IN LISTS _codecs)
+    if(_codec MATCHES "uper|aper")
+      string(APPEND GATE_CALLS "  BINARY(${_codec}, BitWriter, BitReader);\n")
+      list(APPEND _libs asn1::per)
+    elseif(_codec MATCHES "ber|der|cer|oer|coer")
+      string(APPEND GATE_CALLS "  BINARY(${_codec}, ByteWriter, ByteReader);\n")
+      list(APPEND _libs asn1::${_codec})
+    elseif(_codec MATCHES "jer|jeri")
+      string(APPEND GATE_CALLS "  TREE(${_codec}, jer);\n")
+      list(APPEND _libs asn1::jeri)
+    else()
+      if(_codec STREQUAL "cxer")
+        string(APPEND GATE_CALLS "  TREE(${_codec}, cxer);\n")
+      else()
+        string(APPEND GATE_CALLS "  TREE(${_codec}, xer);\n")
+      endif()
+      list(APPEND _libs asn1::${_codec})
+    endif()
+  endforeach()
+  string(REPLACE ";" "," _selection "${_codecs}")
+  configure_file(codegen/codec_entry_driver.cpp.in "${_dir}/driver.cpp" @ONLY)
+  add_custom_command(OUTPUT "${_cpp}" "${_dir}/generated.hpp"
+    COMMAND "${ASN1_GENERATOR}" --no-emit-cache --namespace gate --codec "${_selection}"
+            ${_flags} --emit-dir "${_dir}" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/codec_entries.asn"
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/codec_entries.asn" VERBATIM)
+  add_executable(asn1_entry_${_entry} "${_cpp}" "${_dir}/driver.cpp")
+  target_include_directories(asn1_entry_${_entry} PRIVATE "${_dir}")
+  target_link_libraries(asn1_entry_${_entry} PRIVATE ${_libs})
+  add_test(NAME CodecEntry.${_entry} COMMAND asn1_entry_${_entry})
+  list(APPEND _entry_executables "$<TARGET_FILE:asn1_entry_${_entry}>")
+endforeach()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME CodecEntry.CombinationEquality COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/scripts/validate_codec_entries.py" "${ASN1_GENERATOR}" ${_entry_executables})
+  add_custom_target(asn1_codec_matrix
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/validate_codec_matrix.py"
+      --compiler "${ASN1_GENERATOR}" --cxx "${CMAKE_CXX_COMPILER}"
+      --output "${CMAKE_CURRENT_BINARY_DIR}/codec_matrix"
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} USES_TERMINAL VERBATIM)
+endif()

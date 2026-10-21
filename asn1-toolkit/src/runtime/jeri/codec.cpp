@@ -13,9 +13,9 @@
 ***************************************************************************
 **  File Description:
 **
-**   JERI canonical JSON encoding on top of JER.
+**   JER encoding-instruction helpers (project name JERI).
 **
-** Specification: ITU-T X.697 — Canonical JSON Encoding Rules (JERI).
+** Specification: ITU-T X.697 (02/2021), JER and encoding instructions.
 ** Design Spec:   asn1-toolkit/docs/architecture.md
 **                 asn1-toolkit/README.md
 ***************************************************************************/

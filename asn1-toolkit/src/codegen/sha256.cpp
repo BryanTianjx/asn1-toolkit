@@ -186,6 +186,7 @@ std::string sha256_file_hex(const std::filesystem::path& path) {
     }
     hasher.update(std::string_view(chunk.data(), static_cast<std::size_t>(n)));
   }
+  if (in.bad()) return {};
   return to_hex(hasher.finalize());
 }
 
