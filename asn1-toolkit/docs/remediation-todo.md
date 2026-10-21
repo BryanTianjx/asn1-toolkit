@@ -1,6 +1,6 @@
 # 工程评审修正 TODO（2026-10-20）
 
-本清单用于逐项交给 AI 实现并验收，不表示相关修复已完成。基于本次仓库静态评审；历史 345/345 为既有记录，本次未重新执行。每项执行前必须重新核查当前代码和调用路径：已变化的问题不得机械修改，待核查项不得直接宣称缺陷。
+本清单记录逐项交给 AI 实现与验收的修正，以各 REV 的状态和验收记录为准。初始清单基于静态评审，当时未复测历史 345/345；后续执行结果分别记录，不覆盖历史证据。每项执行前必须重新核查当前代码和调用路径：已变化的问题不得机械修改，待核查项不得直接宣称缺陷。
 
 原有功能路线及 Phase49 子任务仍见 [todo.md](todo.md)，当前实现状态见 [status.md](status.md)。本文件是评审修正执行清单，使用 `REV-xx` 编号，避免与原 P1/P2/P3 编号混淆。
 
@@ -160,7 +160,9 @@
 
 ### REV-10 【严重】E-XER 属性解码错误传播
 
-- [ ] 状态：待办；依据：生成 `if (tmp)` 忽略失败，并生成 std::stoll。
+- [x] 状态：完成（2026-10-20）；依据：生成 `if (tmp)` 忽略失败，并生成 std::stoll。
+
+- 完成：属性缺失与非法值分流，数值完整解析/区间与宿主检查；三种产物实际链接运行负例，错误带字段名。 Release/sanitizer 各 370/370、公共 C++17 头 47/47、历史矩阵 84/84；见 [第三批验收](rev10-12-validation.md)。
 
 - 范围：`src/codegen/emit_xer.cpp`、E-XER 生成代码运行测试。
 
@@ -172,7 +174,9 @@
 
 ### REV-11 【严重】消除编译器业务异常及 bad_alloc 吞捕获
 
-- [ ] 状态：待办；依据：SourceFile/IR 显式 throw、数字转换及 filesystem 抛异常 API、catch(...)。
+- [x] 状态：完成（2026-10-20）；依据：SourceFile/IR 显式 throw、数字转换及 filesystem 抛异常 API、catch(...)。
+
+- 完成：SourceFile/IR BigInt 返回 Result，OID/CLI from_chars，目录 error_code、写失败检查，线程资源回退；bad_alloc 保留，容量失败入口诊断；PER restricted-string 失败传播。 Release/sanitizer 各 370/370、公共 C++17 头 47/47、历史矩阵 84/84；见 [第三批验收](rev10-12-validation.md)。
 
 - 范围：support、IR、parser、CLI、codegen 缓存与文件操作调用链。
 
@@ -184,7 +188,9 @@
 
 ### REV-12 【优化】Result 访问契约和诊断单位
 
-- [ ] 状态：待办；依据：std::get 前置条件、offset bit/byte 含义不明确。
+- [x] 状态：完成（2026-10-20）；依据：std::get 前置条件、offset bit/byte 含义不明确。
+
+- 完成：Result nodiscard 与 assert/终止契约，补 move-only/const/死亡测试；显式偏移单位/字段路径及源码字节列，公共头严格独立编译。 Release/sanitizer 各 370/370、公共 C++17 头 47/47、历史矩阵 84/84；见 [第三批验收](rev10-12-validation.md)。
 
 - 范围：`include/asn1/common/result.hpp`、runtime Error、Diagnostics。
 

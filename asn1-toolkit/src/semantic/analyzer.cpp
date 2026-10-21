@@ -27,6 +27,7 @@
 #include <asn1/ast/ioc.hpp>
 #include <asn1/ast/type.hpp>
 #include <asn1/constraints/normalize.hpp>
+#include <asn1/support/async.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -70,10 +71,10 @@ bool extract_i64_bounds(const ast::Constraint* c, std::int64_t& lo, std::int64_t
       return false;
     }
     auto v = ir::BigInt::from_decimal(iv->text(), iv->negative());
-    if (!v.as_i64) {
+    if (!v || !v.value().as_i64) {
       return false;
     }
-    lo = hi = *v.as_i64;
+    lo = hi = *v.value().as_i64;
     return true;
   }
   if (const auto* range = dynamic_cast<const ast::ValueRangeConstraint*>(c)) {
@@ -87,11 +88,11 @@ bool extract_i64_bounds(const ast::Constraint* c, std::int64_t& lo, std::int64_t
     }
     auto lo_b = ir::BigInt::from_decimal(lo_v->text(), lo_v->negative());
     auto hi_b = ir::BigInt::from_decimal(hi_v->text(), hi_v->negative());
-    if (!lo_b.as_i64 || !hi_b.as_i64) {
+    if (!lo_b || !hi_b || !lo_b.value().as_i64 || !hi_b.value().as_i64) {
       return false;
     }
-    lo = *lo_b.as_i64;
-    hi = *hi_b.as_i64;
+    lo = *lo_b.value().as_i64;
+    hi = *hi_b.value().as_i64;
     return true;
   }
   if (const auto* u = dynamic_cast<const ast::UnionConstraint*>(c)) {
@@ -622,7 +623,9 @@ std::optional<ir::ValueId> lower_simple_value(LowerCtx& ctx, const ast::Value& v
   out.module = ctx.mod.name();
   if (const auto* iv = dynamic_cast<const ast::IntegerValue*>(&v)) {
     out.kind = ir::ValueKind::Integer;
-    out.integer = ir::BigInt::from_decimal(iv->text(), iv->negative());
+    auto parsed = ir::BigInt::from_decimal(iv->text(), iv->negative());
+    if (!parsed) { ctx.diagnostics.error(v.range(), parsed.error().message); return std::nullopt; }
+    out.integer = std::move(parsed.value());
   } else if (const auto* bv = dynamic_cast<const ast::BooleanValue*>(&v)) {
     out.kind = ir::ValueKind::Boolean;
     out.boolean = bv->value();
@@ -1226,7 +1229,9 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     if (sym->kind == SymbolKind::Value && sym->ast) {
       if (const auto* va = dynamic_cast<const ast::ValueAssignment*>(sym->ast)) {
         if (const auto* iv = dynamic_cast<const ast::IntegerValue*>(&va->value())) {
-          return ir::BigInt::from_decimal(iv->text(), iv->negative());
+          auto parsed = ir::BigInt::from_decimal(iv->text(), iv->negative());
+          if (!parsed) return std::nullopt;
+          return std::move(parsed.value());
         }
       }
     }
@@ -1240,8 +1245,9 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     out.integer.constraint =
         constraints::normalize(integer->constraint(), ctx.diagnostics, val_resolver);
     for (const auto& nn : integer->named_numbers()) {
-      out.integer.named_numbers.push_back(
-          ir::NamedNumber{nn.name, ir::BigInt::from_decimal(nn.number_text, nn.negative)});
+      auto parsed = ir::BigInt::from_decimal(nn.number_text, nn.negative);
+      if (!parsed) { ctx.diagnostics.error(type.range(), parsed.error().message); continue; }
+      out.integer.named_numbers.push_back(ir::NamedNumber{nn.name, std::move(parsed.value())});
     }
     constraints::suggest_host_integer(out.integer);
   } else if (const auto* bits = dynamic_cast<const ast::BitStringType*>(&type)) {
@@ -1249,8 +1255,9 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     out.bit_string.size =
         constraints::normalize_size(bits->constraint(), ctx.diagnostics, val_resolver);
     for (const auto& nn : bits->named_bits()) {
-      out.bit_string.named_bits.push_back(
-          ir::NamedNumber{nn.name, ir::BigInt::from_decimal(nn.number_text, false)});
+      auto parsed = ir::BigInt::from_decimal(nn.number_text, false);
+      if (!parsed) { ctx.diagnostics.error(type.range(), parsed.error().message); continue; }
+      out.bit_string.named_bits.push_back(ir::NamedNumber{nn.name, std::move(parsed.value())});
     }
     if (const ast::Type* contained = find_containing_type(bits->constraint())) {
       out.bit_string.containing = lower_type(ctx, *contained, "", subst);
@@ -1506,26 +1513,30 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
         constraints::normalize_size(setof->constraint(), ctx.diagnostics, val_resolver);
   } else if (const auto* en = dynamic_cast<const ast::EnumeratedType*>(&type)) {
     out.kind = ir::TypeKind::Enumerated;
-    auto assign_enum = [](const std::vector<ast::NamedNumber>& in,
-                          std::vector<ir::NamedNumber>& dest, std::int64_t start) {
-      std::int64_t next = start;
-      bool have_next = true;
+    auto assign_enum = [&](const std::vector<ast::NamedNumber>& in,
+                          std::vector<ir::NamedNumber>& dest, std::optional<std::int64_t> start) {
+      std::int64_t next = start.value_or(0);
+      bool have_next = start.has_value();
       for (const auto& nn : in) {
         ir::NamedNumber out_nn;
         out_nn.name = nn.name;
         if (!nn.number_text.empty()) {
-          out_nn.value = ir::BigInt::from_decimal(nn.number_text, nn.negative);
+          auto parsed = ir::BigInt::from_decimal(nn.number_text, nn.negative);
+          if (!parsed) { ctx.diagnostics.error(type.range(), parsed.error().message); continue; }
+          out_nn.value = std::move(parsed.value());
           if (out_nn.value.as_i64) {
-            next = *out_nn.value.as_i64 + 1;
-            have_next = true;
+            have_next = *out_nn.value.as_i64 != INT64_MAX;
+            if (have_next) next = *out_nn.value.as_i64 + 1;
           } else {
             have_next = false;
           }
         } else if (have_next) {
           out_nn.value = ir::BigInt::from_i64(next);
-          ++next;
+          have_next = next != INT64_MAX;
+          if (have_next) ++next;
         } else {
-          out_nn.value = ir::BigInt::from_i64(0);
+          ctx.diagnostics.error(type.range(), "implicit ENUMERATED number exceeds int64; specify an explicit number");
+          continue;
         }
         dest.push_back(std::move(out_nn));
       }
@@ -1535,9 +1546,10 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
     // Extension additions without explicit numbers continue the root numbering
     // (X.680 numbering used by asn1c and 3GPP specs); restarting at 0 would
     // collide with root values in the emitted value->index switch.
-    std::int64_t ext_start = 0;
+    std::optional<std::int64_t> ext_start = 0;
     if (!out.enumerated.root.empty() && out.enumerated.root.back().value.as_i64) {
-      ext_start = *out.enumerated.root.back().value.as_i64 + 1;
+      const auto last = *out.enumerated.root.back().value.as_i64;
+      ext_start = last == INT64_MAX ? std::nullopt : std::optional<std::int64_t>(last + 1);
     }
     assign_enum(en->extensions(), out.enumerated.extensions, ext_start);
   } else if (dynamic_cast<const ast::ObjectIdentifierType*>(&type)) {
@@ -1722,7 +1734,7 @@ Analyzer::Analyzer(Diagnostics& diagnostics) : diagnostics_(diagnostics) {}
  *  Returns     : ir::Model Analyzer::
  */
 ir::Model Analyzer::analyze(std::vector<std::unique_ptr<ast::Module>> modules,
-                            int parallelism) {
+                            int parallelism) try {
   modules_ = std::move(modules);
   model_ = ir::Model{};
   symbols_ = SymbolTable{};
@@ -1733,6 +1745,9 @@ ir::Model Analyzer::analyze(std::vector<std::unique_ptr<ast::Module>> modules,
   tag_pass();
 
   return std::move(model_);
+} catch (const std::length_error& ex) {
+  diagnostics_.error({}, std::string("semantic capacity exceeded: ") + ex.what());
+  return {};
 }
 
 /**
@@ -1894,7 +1909,7 @@ void Analyzer::declare_pass(int parallelism) {
   std::vector<std::future<WorkerResult>> futs;
   futs.reserve(n);
   for (std::size_t i = 0; i < n; ++i) {
-    futs.emplace_back(std::async(std::launch::async, [this, i]() -> WorkerResult {
+    futs.emplace_back(detail::async_or_deferred([this, i]() -> WorkerResult {
       WorkerResult r;
       if (modules_[i]) {
         declare_module_into(*modules_[i], r.syms, r.diag);
@@ -2008,7 +2023,7 @@ void Analyzer::resolve_pass(int parallelism) {
   std::vector<std::future<Diagnostics>> futs;
   futs.reserve(n);
   for (std::size_t i = 0; i < n; ++i) {
-    futs.emplace_back(std::async(std::launch::async, [this, i]() -> Diagnostics {
+    futs.emplace_back(detail::async_or_deferred([this, i]() -> Diagnostics {
       Diagnostics d;
       if (modules_[i]) {
         const ast::Module& mod = *modules_[i];
@@ -2397,7 +2412,9 @@ void resolve_table_constraints(ir::Model& model, const SymbolTable& symbols) {
       if (pair.second.kind == SymbolKind::Value && pair.second.name == name) {
         if (const auto* va = dynamic_cast<const ast::ValueAssignment*>(pair.second.ast)) {
           if (const auto* iv = dynamic_cast<const ast::IntegerValue*>(&va->value())) {
-            return ir::BigInt::from_decimal(iv->text(), iv->negative());
+            auto parsed = ir::BigInt::from_decimal(iv->text(), iv->negative());
+            if (!parsed) return std::nullopt;
+            return std::move(parsed.value());
           }
         }
       }

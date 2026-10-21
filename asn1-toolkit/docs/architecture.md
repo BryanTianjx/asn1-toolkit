@@ -323,8 +323,11 @@ governor id。
 
 - 前端与语义分析追加 `Diagnostics`，可能时恢复到下一个 assignment；
   消息一律带 `file:line:column`（token 存在时）；
-- 编解码错误走 `Result`，带 bit 或 byte 偏移；
+- 编解码错误走 `Result`，偏移单位显式标 Bit / Byte / Unknown；
 - 禁止无信息失败 —— token 或类型名已知时必须出现在消息里。
+
+Result 访问前置条件、源码 UTF-8 字节列、线路偏移与逻辑字段路径的区别、
+资源失败处理及 C++ API 迁移见 [C++ 错误契约](cpp-error-contracts.md)。
 
 ## 设计权衡
 

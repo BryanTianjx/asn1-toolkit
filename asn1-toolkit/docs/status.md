@@ -8,6 +8,13 @@
 
 **Phase 49 — C 语言代码生成器（P2-4，sub-task 1 + sub-task 2 已落地；sub-task 3+ 未排期）。**
 
+- **2026-10-20，REV-10..12**：修复 E-XER 属性错误传播与三种生成形态回归；
+  SourceFile / IR BigInt 改为 Result，数字/文件/线程资源失败规范化；补 Result
+  nodiscard 与访问前置条件、线路偏移单位和字段路径。Release / ASan+UBSan
+  各 **370/370**；公共 C++17 头 47/47 严格编译、历史语法矩阵 84/84。
+  C++ API/布局变化及验证边界见 [第三批验收](rev10-12-validation.md) 和
+  [C++ 错误契约](cpp-error-contracts.md)。REV-13/14 与 JERI 入口仍待后续。
+
 - **2026-10-20，REV-04..09**：C PER 原语修复 MSB-first 尾位、有符号大整数、
   长度片段链与变长/扩展约束；统一 `per_core.c` 以 Variant 参数化，旧 ABI
   保留为 UPER 包装。默认 64KiB decoder 限制保持；大值门禁单独编译 128KiB
@@ -96,8 +103,8 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **348/348 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；新增 `Asn1CPerCorrectness` / `Asn1CPerLargeValues`，各 4473 检查；failure gate 498 检查） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **348/348 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
+| Release 构建 ctest | **370/370 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；本批 E-XER/错误契约回归，含原 C11 smoke、故障及 PER 门禁；见第三批验收） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **370/370 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态

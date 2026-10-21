@@ -94,6 +94,39 @@ CliResult run_asn1cxx(const std::vector<std::string>& args) {
   return r;
 }
 
+TEST(CliErrors, RejectsPartialAndOverflowParallelCounts) {
+  for (const std::string text : {"1x", "999999999999999999999999999", "-1", "1025", ""}) {
+    auto result = run_asn1cxx({"--parallel", text});
+    EXPECT_NE(result.code, 0);
+    EXPECT_NE(result.err.find("--parallel requires an integer"), std::string::npos);
+  }
+}
+
+TEST(CliErrors, MissingSourceAndOutputIsFile) {
+  auto missing = run_asn1cxx({"--dump-ast", "/nonexistent/asn1-rev11.asn"});
+  EXPECT_NE(missing.code, 0);
+  EXPECT_NE(missing.err.find("failed to open ASN.1 source"), std::string::npos);
+  auto output = run_asn1cxx({"--emit-dir", ASN1CXX_BIN, "--no-emit-cache",
+      std::string(ASN1_EXAMPLES_DIR) + "/person.asn"});
+  EXPECT_NE(output.code, 0);
+  EXPECT_NE(output.err.find("cannot create output directory"), std::string::npos);
+}
+
+TEST(CliErrors, WriteFailureIsReportedBeforeSuccess) {
+  namespace fs = std::filesystem;
+  if (!fs::exists("/dev/full")) GTEST_SKIP();
+  const auto dir = fs::temp_directory_path() / ("asn1_rev11_full_" + std::to_string(::getpid()));
+  fs::create_directories(dir);
+  std::error_code ec;
+  fs::create_symlink("/dev/full", dir / "generated.hpp", ec);
+  ASSERT_FALSE(ec) << ec.message();
+  auto result = run_asn1cxx({"--emit-dir", dir.string(), "--no-emit-cache",
+      std::string(ASN1_EXAMPLES_DIR) + "/person.asn"});
+  EXPECT_NE(result.code, 0);
+  EXPECT_NE(result.err.find("failed to write emit outputs"), std::string::npos);
+  fs::remove_all(dir, ec);
+}
+
 std::string example(const char* name) {
   return std::string(ASN1_EXAMPLES_DIR) + "/" + name;
 }

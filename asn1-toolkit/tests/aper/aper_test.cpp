@@ -59,7 +59,7 @@ TEST(Aper, IntegerRange256IsOneAlignedOctet) {
   c.lower = 0;
   c.upper = 255;
   asn1::BitWriter w;
-  asn1::aper::encode_integer(w, 253, c);
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, c)).ok());
   expect_bytes(finish(w), hex({0xFD}));
 
   const auto _bits9 = hex({0xFD});
@@ -75,7 +75,7 @@ TEST(Aper, IntegerRange257IsTwoAlignedOctets) {
   c.lower = 0;
   c.upper = 256;
   asn1::BitWriter w;
-  asn1::aper::encode_integer(w, 253, c);
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, c)).ok());
   expect_bytes(finish(w), hex({0x00, 0xFD}));
 
   const auto _bits10 = hex({0x00, 0xFD});
@@ -90,7 +90,7 @@ TEST(Aper, Integer0To65535TwoOctets) {
   c.lower = 0;
   c.upper = 65535;
   asn1::BitWriter w;
-  asn1::aper::encode_integer(w, 253, c);
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, c)).ok());
   expect_bytes(finish(w), hex({0x00, 0xFD}));
 }
 
@@ -100,12 +100,12 @@ TEST(Aper, DiffersFromUperOnRange300) {
   c.upper = 299;
 
   asn1::BitWriter uper_w;
-  asn1::uper::encode_integer(uper_w, 100, c);
+  ASSERT_TRUE((asn1::uper::encode_integer(uper_w, 100, c)).ok());
   EXPECT_EQ(uper_w.bit_size(), 9u);  // minimal bits, no align
 
   asn1::BitWriter aper_w;
   aper_w.put_bit(true);  // force misalignment before the INTEGER
-  asn1::aper::encode_integer(aper_w, 100, c);
+  ASSERT_TRUE((asn1::aper::encode_integer(aper_w, 100, c)).ok());
   // 1 bit + 7 pad + 16-bit field
   EXPECT_EQ(aper_w.bit_size(), 24u);
 
@@ -128,10 +128,10 @@ TEST(Aper, SequenceAlignmentMatrix) {
   // Known APER vector from asn1tools: 7E 80 FD 00 00 FD
   asn1::BitWriter w;
   asn1::aper::encode_boolean(w, false);
-  asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 254, false});
-  asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 255, false});
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 254, false})).ok());
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 255, false})).ok());
   asn1::aper::encode_boolean(w, false);
-  asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 256, false});
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 253, asn1::per::IntegerConstraint{0, 256, false})).ok());
   expect_bytes(finish(w), hex({0x7E, 0x80, 0xFD, 0x00, 0x00, 0xFD}));
 
   const auto _bits11 = hex({0x7E, 0x80, 0xFD, 0x00, 0x00, 0xFD});
@@ -219,9 +219,9 @@ TEST(Aper, PersonLikeRoundTrip) {
   const std::uint8_t opt[] = {1};
   asn1::aper::encode_sequence_preamble(w, false, false,
                                        asn1::Span<const std::uint8_t>(opt, 1));
-  asn1::aper::encode_integer(w, 42, asn1::per::IntegerConstraint{0, 65535, false});
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 42, asn1::per::IntegerConstraint{0, 65535, false})).ok());
   asn1::aper::encode_utf8_string(w, "Ada");
-  asn1::aper::encode_integer(w, 36, asn1::per::IntegerConstraint{0, 150, false});
+  ASSERT_TRUE((asn1::aper::encode_integer(w, 36, asn1::per::IntegerConstraint{0, 150, false})).ok());
   auto bytes = finish(w);
 
   asn1::BitReader r(bytes);

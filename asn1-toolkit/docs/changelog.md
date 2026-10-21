@@ -8,6 +8,18 @@
 
 ### 2026-10-20
 
+**REV-10..12 — 第三批 C++ 错误模型与 E-XER 生成代码修正**
+
+- 属性区分 missing/invalid，按 mandatory/optional/default 处理；整数完整
+  解析及区间/宿主范围验证，错误携带逻辑属性名；三种生成形态实际链接运行。
+- SourceFile / IR BigInt 返回 Result，OID/CLI from_chars，filesystem error_code，
+  flush 后检查；线程资源失败 deferred 回退，容量错误归入诊断，保留 bad_alloc；
+  PER 生成器传播 restricted-string 字母表错误。
+- Result nodiscard / 访问契约与死亡测试；Error 偏移单位、字段路径、迁移文档；
+  36 处原测试编码调用增加成功检查；int64 两端、负零及 ENUMERATED 后继溢出保护。
+- Release / ASan+UBSan 各 **370/370**；公共头 47/47 严格 C++17 编译、历史语法
+  矩阵 84/84。完整边界见 [第三批验收](rev10-12-validation.md)。
+
 **REV-04..09 — 第二批 C11 位操作与 PER 线路修正**
 
 - 修复 MSB-first 尾位和 >64 bit 静默截断，新增 signed BigInt 内容转换；

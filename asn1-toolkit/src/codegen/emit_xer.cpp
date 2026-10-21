@@ -856,29 +856,65 @@ void Emitter::emit_xer_decode_body(std::ostream& out, const ir::Type& t, const s
                                       ? resolve(model_, ft.referenced.resolved)
                                       : ft;
             out << ind << "  {\n";
+            out << ind << "    auto attr = asn1::exer::get_attribute(" << el_expr
+                << ", \"" << xml_name << "\");\n";
+            out << ind << "    auto attr_error = [](asn1::Error error) { error.field_path = \"" << xml_name << "\"; return error; };\n";
+            out << ind << "    if (attr) {\n";
+            const std::string target = expr + "." + fname;
             if (rft.kind == ir::TypeKind::Boolean) {
-              out << ind << "    auto tmp = asn1::exer::decode_attribute_boolean(" << el_expr
+              out << ind << "      auto tmp = asn1::exer::decode_attribute_boolean(" << el_expr
                   << ", \"" << xml_name << "\");\n";
-              out << ind << "    if (tmp) " << expr << "." << fname << " = tmp.value();\n";
-            } else if (rft.kind == ir::TypeKind::Integer && integer_is_bigint(rft.integer)) {
-              out << ind << "    auto tmp = asn1::exer::get_attribute(" << el_expr << ", \""
-                  << xml_name << "\");\n";
-              out << ind << "    if (tmp) {\n";
-              out << ind << "      auto bi = asn1::BigInteger::from_decimal(tmp.value());\n";
-              out << ind << "      if (bi) " << expr << "." << fname
-                  << " = std::move(bi.value());\n";
-              out << ind << "    }\n";
+              out << ind << "      if (!tmp) return attr_error(tmp.error());\n";
+              out << ind << "      " << target << " = tmp.value();\n";
             } else if (rft.kind == ir::TypeKind::Integer || rft.kind == ir::TypeKind::Enumerated) {
-              out << ind << "    auto tmp = asn1::exer::get_attribute(" << el_expr << ", \""
-                  << xml_name << "\");\n";
-              out << ind << "    if (tmp) " << expr << "." << fname
-                  << " = static_cast<" << type_cpp(f.type)
-                  << ">(std::stoll(tmp.value()));\n";
+              out << ind << "      auto tmp = asn1::BigInteger::from_decimal(attr.value());\n";
+              out << ind << "      if (!tmp) return attr_error(tmp.error());\n";
+              if (rft.kind == ir::TypeKind::Integer && !rft.integer.constraint.extensible &&
+                  !rft.integer.constraint.root_ranges.empty()) {
+                out << ind << "      bool in_range = false;\n";
+                for (const auto& range : rft.integer.constraint.root_ranges) {
+                  out << ind << "      { bool match = true;\n";
+                  if (range.lower) {
+                    out << ind << "        auto lower = asn1::BigInteger::from_decimal(\"" << range.lower->to_string() << "\");\n";
+                    out << ind << "        if (!lower) return attr_error(lower.error());\n";
+                    out << ind << "        match = match && tmp.value().compare(lower.value()) >= 0;\n";
+                  }
+                  if (range.upper) {
+                    out << ind << "        auto upper = asn1::BigInteger::from_decimal(\"" << range.upper->to_string() << "\");\n";
+                    out << ind << "        if (!upper) return attr_error(upper.error());\n";
+                    out << ind << "        match = match && tmp.value().compare(upper.value()) <= 0;\n";
+                  }
+                  out << ind << "        in_range = in_range || match; }\n";
+                }
+                out << ind << "      if (!in_range) return attr_error(asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"attribute violates INTEGER constraint\"));\n";
+              }
+              if (rft.kind == ir::TypeKind::Integer && integer_is_bigint(rft.integer)) {
+                out << ind << "      " << target << " = std::move(tmp.value());\n";
+              } else {
+                out << ind << "      auto number = tmp.value()."
+                    << (rft.kind == ir::TypeKind::Integer && !rft.integer.is_signed ? "as_u64" : "as_i64") << "();\n";
+                out << ind << "      if (!number) return attr_error(asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"attribute integer overflow\"));\n";
+                if (rft.kind == ir::TypeKind::Integer) {
+                  const auto host = integer_host_type(rft.integer);
+                  out << ind << "      if (*number < std::numeric_limits<" << host << ">::min() || *number > std::numeric_limits<" << host << ">::max()) return attr_error(asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"attribute exceeds host range\"));\n";
+                }
+                out << ind << "      " << target << " = static_cast<" << type_cpp(f.type) << ">(*number);\n";
+              }
             } else if (rft.kind == ir::TypeKind::String) {
-              out << ind << "    auto tmp = asn1::exer::get_attribute(" << el_expr << ", \""
-                  << xml_name << "\");\n";
-              out << ind << "    if (tmp) " << expr << "." << fname << " = tmp.value();\n";
+              out << ind << "      " << target << " = attr.value();\n";
+            } else {
+              out << ind << "      return asn1::make_error(asn1::Error::Code::Unsupported, 0, \"unsupported attribute type\");\n";
             }
+            out << ind << "    } else {\n";
+            if (f.presence == ir::Presence::Mandatory) {
+              out << ind << "      return attr_error(attr.error());\n";
+            } else if (f.presence == ir::Presence::Optional) {
+              out << ind << "      " << target << " = std::nullopt;\n";
+            } else if (f.presence == ir::Presence::Default && f.default_value) {
+              const auto def = default_val_cpp(f);
+              if (!def.empty()) out << ind << "      " << target << " = " << def << ";\n";
+            }
+            out << ind << "    }\n";
             out << ind << "  }\n";
             continue;
           }

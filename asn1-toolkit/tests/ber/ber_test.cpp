@@ -32,6 +32,14 @@
 
 #include <gtest/gtest.h>
 
+TEST(WireError, ByteOffsetUnit) {
+  asn1::ByteReader reader(std::vector<std::uint8_t>{});
+  auto result = reader.get();
+  ASSERT_FALSE(result);
+  EXPECT_EQ(result.error().offset, 0u);
+  EXPECT_EQ(result.error().offset_unit, asn1::Error::OffsetUnit::Byte);
+}
+
 namespace {
 
 std::vector<std::uint8_t> hex(std::initializer_list<std::uint8_t> bytes) {

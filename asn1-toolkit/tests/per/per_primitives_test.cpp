@@ -90,7 +90,7 @@ TEST(PerPrimitives, BitsForRange) {
 TEST(PerPrimitives, ConstrainedUperSmall) {
   // INTEGER (0..7) value 5 -> 3 bits 101, padded -> A0
   asn1::BitWriter w;
-  asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 5, 0, 7);
+  ASSERT_TRUE((asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 5, 0, 7)).ok());
   expect_bytes(w.take(), hex({0xA0}));
 
   const auto _bits14 = hex({0xA0});
@@ -104,7 +104,7 @@ TEST(PerPrimitives, ConstrainedAperVsUperRange300) {
   // range 300 (0..299): UPER uses 9 bits; APER uses aligned 16 bits.
   {
     asn1::BitWriter w;
-    asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 100, 0, 299);
+    ASSERT_TRUE((asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 100, 0, 299)).ok());
     EXPECT_EQ(w.bit_size(), 9u);
     auto bytes = w.take();
     asn1::BitReader r(bytes);
@@ -116,7 +116,7 @@ TEST(PerPrimitives, ConstrainedAperVsUperRange300) {
   {
     asn1::BitWriter w;
     w.put_bit(true);  // force misalignment
-    asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Aligned, 100, 0, 299);
+    ASSERT_TRUE((asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Aligned, 100, 0, 299)).ok());
     // 1 bit + 7 pad + 16 bits = 24 bits
     EXPECT_EQ(w.bit_size(), 24u);
     auto bytes = w.take();
@@ -130,7 +130,7 @@ TEST(PerPrimitives, ConstrainedAperVsUperRange300) {
 
 TEST(PerPrimitives, ConstrainedSingleValue) {
   asn1::BitWriter w;
-  asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 42, 42, 42);
+  ASSERT_TRUE((asn1::per::encode_constrained_whole_number(w, asn1::per::Variant::Unaligned, 42, 42, 42)).ok());
   EXPECT_EQ(w.bit_size(), 0u);
   asn1::BitReader r(std::vector<std::uint8_t>{});
   auto v =

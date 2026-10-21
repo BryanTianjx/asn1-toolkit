@@ -6,7 +6,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 | 项目    | 值                                                                                                                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 当前阶段  | Phase 49 — C 语言代码生成器 P2-4（sub-task 1 `include/asn1/c_runtime/*` 头骨架 + sub-task 2 `src/c_runtime/*.c` 纯 C11 runtime + `Asn1CRuntimeSmoke` 链接+运行门禁；详见 [docs/status.md](docs/status.md)） |
-| 测试状态  | 348/348 通过（Release + ASan/UBSan 双构建门禁；含 C11 故障、PER 正确性及大值门禁） |
+| 测试状态  | 370/370 通过（Release + ASan/UBSan 双构建门禁；含 C11 故障、PER 正确性及大值门禁） |
 | 编码规则  | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI                                                                                                          |
 | 语言/构建 | C++17（GCC / Clang；MSVC 本地可用）+ CMake 3.16+                                                                                                                                             |
 | 依赖    | 零第三方运行时依赖（BigInt 自研，无 Boost、无 multiprecision）                                                                                                                                         |
@@ -21,7 +21,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 | 字节级金标准差分验证 | PER/APER（asn1c oracle，54 向量）、BER/DER/OER（asn1tools + asn1c oracle，16 用例）、CER（X.690 条文推导 + DER 值等价，10 用例）                   |
 | 三种生成产物形态   | 默认 out-of-line（声明在头、定义在 `.cpp`）、`--emit-inline` 全 inline 单头、`--emit-split` 按 ASN.1 模块分文件                                   |
 | 编译门禁       | 7 个 fixture × 12 codec 全量 emit 产物 `-fsyntax-only` 零错误（emit 成功 ≠ 可编译）                                                       |
-| 无异常错误模型    | 全链路 `Result<T>`（仅 `std::bad_alloc` 可传播）；诊断一律带 `file:line:column`                                                           |
+| 无异常错误模型    | 业务错误用 `Result<T>` / 编译诊断（仅 `std::bad_alloc` 可传播）；源范围与线路偏移单位见 [错误契约](docs/cpp-error-contracts.md)                                                           |
 | 严格分层       | 编译器链（lexer/parser/IR/codegen）不链接运行时；运行时不包含 AST/IR 头；生成的 `.cpp` 是唯一桥梁                                                       |
 
 ## 环境要求
@@ -40,7 +40,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# 2. 运行全部测试（预期 348/348 通过）
+# 2. 运行全部测试（预期 370/370 通过）
 ctest --test-dir build --output-on-failure
 
 # 3. 解析一个 ASN.1 文件并查看 IR

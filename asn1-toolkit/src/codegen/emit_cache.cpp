@@ -75,7 +75,7 @@ ContentCache::ContentCache(const std::filesystem::path& emit_dir)
       break;
     }
     const auto& entry = *it;
-    if (!entry.is_regular_file()) {
+    if (!entry.is_regular_file(ec)) {
       continue;
     }
     const std::string filename = entry.path().filename().string();
@@ -125,7 +125,8 @@ std::string ContentCache::serialise(const CacheEntry& e) {
     out.push_back(' ');
     out.append(n);
     out.push_back(':');
-    out.append(e.outputs.at(n));
+    // n was copied from this unchanged map above; find cannot miss.
+    out.append(e.outputs.find(n)->second);
   }
   return out;
 }

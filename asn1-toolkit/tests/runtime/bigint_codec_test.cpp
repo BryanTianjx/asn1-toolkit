@@ -108,7 +108,7 @@ TEST(DerBigInteger, RoundTripAndMinimal) {
 TEST(UperBigInteger, UnconstrainedRoundTrip) {
   const auto v = must_dec("999999999999999999999999999999");
   asn1::BitWriter w;
-  asn1::uper::encode_integer(w, v);
+  ASSERT_TRUE((asn1::uper::encode_integer(w, v)).ok());
   const auto bytes = w.take();
   asn1::BitReader r(asn1::Span<const std::uint8_t>(bytes.data(), bytes.size()));
   auto d = asn1::uper::decode_big_integer(r);
@@ -119,7 +119,7 @@ TEST(UperBigInteger, UnconstrainedRoundTrip) {
 TEST(AperBigInteger, UnconstrainedRoundTrip) {
   const auto v = must_dec("-999999999999999999999999999999");
   asn1::BitWriter w;
-  asn1::aper::encode_integer(w, v);
+  ASSERT_TRUE((asn1::aper::encode_integer(w, v)).ok());
   const auto bytes = w.take();
   asn1::BitReader r(asn1::Span<const std::uint8_t>(bytes.data(), bytes.size()));
   auto d = asn1::aper::decode_big_integer(r);

@@ -82,7 +82,9 @@ std::string read_file(const fs::path& p) {
 
 // Parse + analyze an .asn fixture. Returns the model + a populated IR.
 asn1::ir::Model build_model(const fs::path& asn, asn1::Diagnostics& diag) {
-  asn1::SourceFile file = asn1::SourceFile::from_path(asn.string());
+  auto loaded = asn1::SourceFile::from_path(asn.string());
+  if (!loaded) { diag.error({}, loaded.error().message); return {}; }
+  asn1::SourceFile file = std::move(loaded.value());
   asn1::Lexer lexer(file, diag);
   asn1::Parser parser(lexer, diag);
   auto mods = parser.parse_modules();

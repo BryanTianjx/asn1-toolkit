@@ -25,6 +25,12 @@
 #include <memory>
 
 namespace asn1 {
+namespace {
+Error byte_error(Error::Code code, std::size_t offset, std::string message) {
+  return make_error(code, offset, std::move(message), Error::OffsetUnit::Byte);
+}
+}
+
 
 /**
  *  Function    : push_back
@@ -97,14 +103,14 @@ Span<const std::uint8_t> ByteReader::remaining_span() const noexcept {
  */
 Result<std::uint8_t> ByteReader::get() {
   if (pos_ >= data_.size()) {
-    return make_error(Error::Code::Truncated, pos_, "unexpected end of input");
+    return byte_error(Error::Code::Truncated, pos_, "unexpected end of input");
   }
   return data_[pos_++];
 }
 
 Result<std::uint8_t> ByteReader::peek(std::size_t ahead) const {
   if (pos_ + ahead >= data_.size()) {
-    return make_error(Error::Code::Truncated, pos_, "unexpected end of input");
+    return byte_error(Error::Code::Truncated, pos_, "unexpected end of input");
   }
   return data_[pos_ + ahead];
 }
@@ -117,7 +123,7 @@ Result<std::uint8_t> ByteReader::peek(std::size_t ahead) const {
  */
 Result<Span<const std::uint8_t>> ByteReader::read(std::size_t n) {
   if (remaining() < n) {
-    return make_error(Error::Code::Truncated, pos_, "unexpected end of input");
+    return byte_error(Error::Code::Truncated, pos_, "unexpected end of input");
   }
   Span<const std::uint8_t> view(data_.data() + pos_, n);
   pos_ += n;
@@ -136,7 +142,7 @@ Result<void> ByteReader::expect(std::uint8_t b) {
     return got.error();
   }
   if (got.value() != b) {
-    return make_error(Error::Code::InvalidArgument, pos_ - 1,
+    return byte_error(Error::Code::InvalidArgument, pos_ - 1,
                       "unexpected byte value");
   }
   return Result<void>::success();

@@ -29,9 +29,18 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 
 namespace asn1 {
 namespace codegen {
+namespace {
+std::string host_integer_literal(std::int64_t value) {
+  // The positive token in -9223372036854775808 is not a C++17 int64 literal.
+  if (value == INT64_MIN) return "std::numeric_limits<std::int64_t>::min()";
+  return std::to_string(value);
+}
+}
+
 
 /**
  *  Function    : is_cpp_keyword
@@ -179,7 +188,7 @@ std::string integer_host_type(const ir::IntegerDesc& d) {
  */
 std::string opt_i64_expr(const std::optional<ir::BigInt>& b) {
   if (b && b->as_i64) {
-    return "std::int64_t{" + std::to_string(*b->as_i64) + "}";
+    return "std::int64_t{" + host_integer_literal(*b->as_i64) + "}";
   }
   return "std::nullopt";
 }
@@ -227,7 +236,9 @@ void Emitter::run(std::ostream& header, std::ostream* source) {
 
 void Emitter::run_to_dir(const std::filesystem::path& dir) {
     cache_reset_stats();
-    std::filesystem::create_directories(dir);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) { diag_.error({}, "cannot create output directory " + dir.string() + ": " + ec.message()); return; }
     const std::filesystem::path hpp_path = dir / (options_.basename + ".hpp");
     const std::filesystem::path cpp_path = dir / (options_.basename + ".cpp");
     const std::vector<std::filesystem::path> outputs{hpp_path.filename(),
@@ -251,6 +262,9 @@ void Emitter::run_to_dir(const std::filesystem::path& dir) {
       }
       auto t0 = std::chrono::steady_clock::now();
       run(header, &source);
+      header.flush();
+      source.flush();
+      if (!header || !source) { diag_.error({}, "failed to write emit outputs in " + dir.string()); return; }
       auto t1 = std::chrono::steady_clock::now();
       cache_miss_wall_ += std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0);
     }
@@ -537,7 +551,7 @@ void Emitter::emit_includes(std::ostream& out) {
         (options_.codec & (CodecKind::Oer | CodecKind::Coer)) != CodecKind::None;
     const bool emit_tlv = (options_.codec & (CodecKind::Ber | CodecKind::Der |
                                              CodecKind::Cer)) != CodecKind::None;
-    out << "#include <algorithm>\n"
+    out << "#include <algorithm>\n#include <limits>\n"
         << "#include <asn1/runtime/bigint.hpp>\n"
         << "#include <asn1/runtime/bit_string.hpp>\n";
     if (emit_per) {
@@ -850,14 +864,14 @@ void Emitter::emit_type_decl(std::ostream& out, ir::TypeId id) {
         for (const auto& nn : t.enumerated.root) {
           out << "  " << cpp_ident(nn.name);
           if (nn.value.as_i64) {
-            out << " = " << *nn.value.as_i64;
+            out << " = " << host_integer_literal(*nn.value.as_i64);
           }
           out << ",\n";
         }
         for (const auto& nn : t.enumerated.extensions) {
           out << "  " << cpp_ident(nn.name);
           if (nn.value.as_i64) {
-            out << " = " << *nn.value.as_i64;
+            out << " = " << host_integer_literal(*nn.value.as_i64);
           }
           out << ",\n";
         }
@@ -1019,7 +1033,7 @@ std::string Emitter::default_val_cpp(const ir::Field& f) {
         break;
       case ir::ValueKind::Integer:
         if (val.integer.as_i64) {
-          base = std::to_string(*val.integer.as_i64);
+          base = host_integer_literal(*val.integer.as_i64);
         }
         break;
       case ir::ValueKind::String: {
@@ -1303,6 +1317,9 @@ void Emitter::collect_module_groups() {
    *  Returns     : void
    */
 void Emitter::run_split(const std::filesystem::path& dir) {
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) { diag_.error({}, "cannot create output directory " + dir.string() + ": " + ec.message()); return; }
     cache_reset_stats();
     collect_named();
     collect_module_groups();
@@ -1460,6 +1477,7 @@ void Emitter::run_split(const std::filesystem::path& dir) {
       // the cache entry (P2-3 first iteration regression).
       header.flush();
       source.flush();
+      if (!header || !source) { diag_.error({}, "failed to write emit outputs in " + dir.string()); return; }
       cache_record_unit(file_base, unit_outputs);
     }
 
@@ -1479,31 +1497,39 @@ void Emitter::run_split(const std::filesystem::path& dir) {
       agg << "#include \"" << f << ".hpp\"\n";
     }
     agg << "\n#endif  // " << aguard << "\n";
+    agg.flush();
+    if (!agg) { diag_.error({}, "failed to write aggregate header " + agg_path.string()); return; }
     cache_finalise();
   }
 
 void CppGenerator::emit(const ir::Model& model, const EmitOptions& options, Diagnostics& diag,
-                        std::ostream& header, std::ostream* source) {
+                        std::ostream& header, std::ostream* source) try {
   Emitter emitter(model, options, diag);
   emitter.run(header, source);
+} catch (const std::length_error& ex) {
+  diag.error({}, std::string("code generation capacity exceeded: ") + ex.what());
 }
 
 void CppGenerator::emit_split(const ir::Model& model, const EmitOptions& options,
-                              Diagnostics& diag, const std::filesystem::path& dir) {
+                              Diagnostics& diag, const std::filesystem::path& dir) try {
   // Copy options so we can attach the dir without mutating the caller's
   // struct (caller might pass a temporary, const-ref, or reused instance).
   EmitOptions opts = options;
   opts.emit_dir = dir;
   Emitter emitter(model, opts, diag);
   emitter.run_split(dir);
+} catch (const std::length_error& ex) {
+  diag.error({}, std::string("code generation capacity exceeded: ") + ex.what());
 }
 
 void CppGenerator::emit_to_dir(const ir::Model& model, const EmitOptions& options,
-                                Diagnostics& diag, const std::filesystem::path& dir) {
+                                Diagnostics& diag, const std::filesystem::path& dir) try {
   EmitOptions opts = options;
   opts.emit_dir = dir;
   Emitter emitter(model, opts, diag);
   emitter.run_to_dir(dir);
+} catch (const std::length_error& ex) {
+  diag.error({}, std::string("code generation capacity exceeded: ") + ex.what());
 }
 
 std::string CppGenerator::emit_header_string(const ir::Model& model, const EmitOptions& options,
@@ -1565,7 +1591,8 @@ std::string Emitter::cache_source_fingerprint() const {
     std::string joined;
     joined.reserve(64 * sorted.size());
     for (const auto& p : sorted) {
-      const std::string& h = cache_source_hashes_cached_.at(p.string());
+      const auto found = cache_source_hashes_cached_.find(p.string());
+      const std::string h = found == cache_source_hashes_cached_.end() ? std::string{} : found->second;
       joined.append(p.string());
       joined.push_back('=');
       joined.append(h.empty() ? std::string("unreadable") : h);

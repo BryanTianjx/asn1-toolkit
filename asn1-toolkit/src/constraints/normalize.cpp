@@ -41,9 +41,11 @@ using ir::IntegerInterval;
  *  Parameters  : v — const ast::Value* v; resolver — const ValueResolver& resolver
  *  Returns     : std::optional<BigInt>
  */
-std::optional<BigInt> from_ast_value(const ast::Value* v, const ValueResolver& resolver) {
+std::optional<BigInt> from_ast_value(const ast::Value* v, const ValueResolver& resolver, Diagnostics& diag) {
   if (const auto* iv = dynamic_cast<const ast::IntegerValue*>(v)) {
-    return BigInt::from_decimal(iv->text(), iv->negative());
+    auto parsed = BigInt::from_decimal(iv->text(), iv->negative());
+    if (!parsed) { diag.error(v->range(), parsed.error().message); return std::nullopt; }
+    return std::move(parsed.value());
   }
   if (const auto* vr = dynamic_cast<const ast::ValueReference*>(v)) {
     if (resolver) {
@@ -255,7 +257,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
   if (const auto* range = dynamic_cast<const ast::ValueRangeConstraint*>(c)) {
     IntegerInterval iv;
     if (range->lower()) {
-      iv.lower = from_ast_value(range->lower(), resolver);
+      iv.lower = from_ast_value(range->lower(), resolver, diag);
       if (!iv.lower) {
         out.statically_foldable = false;
         diag.warning(c->range(), "lower bound is not a static integer");
@@ -263,7 +265,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
       }
     }
     if (range->upper()) {
-      iv.upper = from_ast_value(range->upper(), resolver);
+      iv.upper = from_ast_value(range->upper(), resolver, diag);
       if (!iv.upper) {
         out.statically_foldable = false;
         diag.warning(c->range(), "upper bound is not a static integer");
@@ -282,7 +284,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
   }
 
   if (const auto* single = dynamic_cast<const ast::SingleValueConstraint*>(c)) {
-    auto v = from_ast_value(&single->value(), resolver);
+    auto v = from_ast_value(&single->value(), resolver, diag);
     if (!v) {
       out.statically_foldable = false;
       diag.warning(c->range(), "single-value constraint is not a static integer");

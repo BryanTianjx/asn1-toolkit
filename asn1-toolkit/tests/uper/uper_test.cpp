@@ -29,6 +29,14 @@
 
 #include <gtest/gtest.h>
 
+TEST(WireError, BitOffsetUnit) {
+  asn1::BitReader reader(std::vector<std::uint8_t>{});
+  auto result = reader.get_bit();
+  ASSERT_FALSE(result);
+  EXPECT_EQ(result.error().offset, 0u);
+  EXPECT_EQ(result.error().offset_unit, asn1::Error::OffsetUnit::Bit);
+}
+
 namespace {
 
 std::vector<std::uint8_t> hex(std::initializer_list<std::uint8_t> bytes) {
@@ -81,7 +89,7 @@ TEST(Uper, IntegerUnconstrainedVectors) {
   };
   for (const auto& c : cases) {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, c.value);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, c.value)).ok());
     expect_bytes(finish(w), c.encoding);
     asn1::BitReader r(c.encoding);
     auto v = asn1::uper::decode_integer(r);
@@ -96,17 +104,17 @@ TEST(Uper, IntegerConstrainedVectors) {
   b.upper = 99;
   {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, 5, b);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, 5, b)).ok());
     expect_bytes(finish(w), hex({0x00}));
   }
   {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, 6, b);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, 6, b)).ok());
     expect_bytes(finish(w), hex({0x02}));
   }
   {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, 99, b);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, 99, b)).ok());
     expect_bytes(finish(w), hex({0xBC}));
   }
 
@@ -115,7 +123,7 @@ TEST(Uper, IntegerConstrainedVectors) {
   c.upper = 10;
   {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, -10, c);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, -10, c)).ok());
     expect_bytes(finish(w), hex({0x00}));
     const auto _bits2 = hex({0x00});
     asn1::BitReader r(_bits2);
@@ -125,7 +133,7 @@ TEST(Uper, IntegerConstrainedVectors) {
   }
   {
     asn1::BitWriter w;
-    asn1::uper::encode_integer(w, 0, c);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, 0, c)).ok());
     expect_bytes(finish(w), hex({0x50}));
   }
 }
@@ -138,7 +146,7 @@ TEST(Uper, IntegerExtensible) {
   // value 99 in root: ext bit 0 + constrained encoding of 99
   // constrained alone was 0xBC = 10111100; with leading 0: 01011110 = 0x5E
   asn1::BitWriter w;
-  asn1::uper::encode_integer(w, 99, d);
+  ASSERT_TRUE((asn1::uper::encode_integer(w, 99, d)).ok());
   expect_bytes(finish(w), hex({0x5E}));
   const auto _bits3 = hex({0x5E});
   asn1::BitReader r(_bits3);
@@ -152,7 +160,7 @@ TEST(Uper, IntegerFixedSingle) {
   e.lower = 1000;
   e.upper = 1000;
   asn1::BitWriter w;
-  asn1::uper::encode_integer(w, 1000, e);
+  ASSERT_TRUE((asn1::uper::encode_integer(w, 1000, e)).ok());
   EXPECT_EQ(w.bit_size(), 0u);
   asn1::BitReader r(std::vector<std::uint8_t>{});
   auto v = asn1::uper::decode_integer(r, e);
@@ -256,7 +264,7 @@ TEST(Uper, ChoiceAndSequenceOf) {
   // index 1 of 2 -> 1 bit: 1, then INTEGER 5 with 3 bits: 101 -> 1101 0xxx -> D0
   asn1::BitWriter w;
   asn1::uper::encode_choice_root(w, 1, 2);
-  asn1::uper::encode_integer(w, 5, asn1::per::IntegerConstraint{0, 7, false});
+  ASSERT_TRUE((asn1::uper::encode_integer(w, 5, asn1::per::IntegerConstraint{0, 7, false})).ok());
   expect_bytes(finish(w), hex({0xD0}));
 
   const auto _bits8 = hex({0xD0});
@@ -274,8 +282,8 @@ TEST(Uper, ChoiceAndSequenceOf) {
   sz.upper = 3;
   asn1::BitWriter w2;
   asn1::uper::encode_sequence_of_length(w2, 2, sz);
-  asn1::uper::encode_integer(w2, 1, asn1::per::IntegerConstraint{0, 3, false});
-  asn1::uper::encode_integer(w2, 2, asn1::per::IntegerConstraint{0, 3, false});
+  ASSERT_TRUE((asn1::uper::encode_integer(w2, 1, asn1::per::IntegerConstraint{0, 3, false})).ok());
+  ASSERT_TRUE((asn1::uper::encode_integer(w2, 2, asn1::per::IntegerConstraint{0, 3, false})).ok());
   auto bytes = finish(w2);
   asn1::BitReader r2(bytes);
   auto n = asn1::uper::decode_sequence_of_length(r2, sz);
@@ -300,10 +308,10 @@ TEST(Uper, PersonLikeRoundTrip) {
   const std::uint8_t opt[] = {has_age ? 1 : 0};
   asn1::uper::encode_sequence_preamble(w, false, false,
                                        asn1::Span<const std::uint8_t>(opt, 1));
-  asn1::uper::encode_integer(w, id, asn1::per::IntegerConstraint{0, 65535, false});
+  ASSERT_TRUE((asn1::uper::encode_integer(w, id, asn1::per::IntegerConstraint{0, 65535, false})).ok());
   asn1::uper::encode_utf8_string(w, name);
   if (has_age) {
-    asn1::uper::encode_integer(w, age, asn1::per::IntegerConstraint{0, 150, false});
+    ASSERT_TRUE((asn1::uper::encode_integer(w, age, asn1::per::IntegerConstraint{0, 150, false})).ok());
   }
   auto bytes = finish(w);
 
@@ -440,7 +448,7 @@ TEST(Uper, SequenceExtensionAdditions) {
 TEST(Uper, ChoiceExtensionAlternative) {
   // CHOICE { a BOOLEAN, ..., b INTEGER (0..7) } selecting b=5
   asn1::BitWriter ow;
-  asn1::uper::encode_integer(ow, 5, asn1::per::IntegerConstraint{0, 7, false});
+  ASSERT_TRUE((asn1::uper::encode_integer(ow, 5, asn1::per::IntegerConstraint{0, 7, false})).ok());
   ow.align_to_octet();
   auto content = ow.take();
 
@@ -580,7 +588,7 @@ TEST(Uper, DefaultFieldOmissionAndBackfill) {
         static_cast<std::uint8_t>(priority_def != 5 ? 1 : 0)};
     asn1::uper::encode_sequence_preamble(w, false, false,
                                          asn1::Span<const std::uint8_t>(opt, 2));
-    asn1::uper::encode_integer(w, id, id_c);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, id, id_c)).ok());
     // omitted: flag & priority
     auto bytes = finish(w);
 
@@ -622,12 +630,12 @@ TEST(Uper, DefaultFieldOmissionAndBackfill) {
         static_cast<std::uint8_t>(priority_custom != 5 ? 1 : 0)};
     asn1::uper::encode_sequence_preamble(w, false, false,
                                          asn1::Span<const std::uint8_t>(opt, 2));
-    asn1::uper::encode_integer(w, id, id_c);
+    ASSERT_TRUE((asn1::uper::encode_integer(w, id, id_c)).ok());
     if (opt[0]) {
       asn1::uper::encode_boolean(w, flag_custom);
     }
     if (opt[1]) {
-      asn1::uper::encode_integer(w, priority_custom, prio_c);
+      ASSERT_TRUE((asn1::uper::encode_integer(w, priority_custom, prio_c)).ok());
     }
     auto bytes = finish(w);
 

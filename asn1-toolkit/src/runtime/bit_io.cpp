@@ -29,6 +29,12 @@
 #include <type_traits>
 
 namespace asn1 {
+namespace {
+Error bit_error(Error::Code code, std::size_t offset, std::string message) {
+  return make_error(code, offset, std::move(message), Error::OffsetUnit::Bit);
+}
+}
+
 
 namespace {
 // Low-`n`-bits mask for n in [0, 64]; n == 64 yields all-ones.
@@ -272,7 +278,7 @@ std::size_t BitReader::bit_remaining() const noexcept {
  */
 Result<bool> BitReader::get_bit() {
   if (bit_remaining() == 0) {
-    return make_error(Error::Code::Truncated, bit_pos_,
+    return bit_error(Error::Code::Truncated, bit_pos_,
                       "unexpected end of bit input");
   }
   const std::size_t byte_index = bit_pos_ / 8;
@@ -290,11 +296,11 @@ Result<bool> BitReader::get_bit() {
  */
 Result<std::uint64_t> BitReader::get_bits(std::size_t nbits) {
   if (nbits > 64) {
-    return make_error(Error::Code::InvalidArgument, bit_pos_,
+    return bit_error(Error::Code::InvalidArgument, bit_pos_,
                       "get_bits nbits must be <= 64");
   }
   if (bit_remaining() < nbits) {
-    return make_error(Error::Code::Truncated, bit_pos_,
+    return bit_error(Error::Code::Truncated, bit_pos_,
                       "unexpected end of bit input");
   }
   std::uint64_t value = 0;
@@ -316,7 +322,7 @@ Result<std::uint64_t> BitReader::get_bits(std::size_t nbits) {
  */
 Result<std::vector<std::uint8_t>> BitReader::get_bits_as_bytes(std::size_t nbits) {
   if (bit_remaining() < nbits) {
-    return make_error(Error::Code::Truncated, bit_pos_,
+    return bit_error(Error::Code::Truncated, bit_pos_,
                       "unexpected end of bit input");
   }
   std::vector<std::uint8_t> out((nbits + 7) / 8, 0);
@@ -357,7 +363,7 @@ Result<std::uint8_t> BitReader::get_octet() {
  */
 Result<std::vector<std::uint8_t>> BitReader::get_octets(std::size_t n) {
   if (n > kMaxCodecBytes) {
-    return make_error(Error::Code::LengthOverflow, bit_offset(),
+    return bit_error(Error::Code::LengthOverflow, bit_offset(),
                       "octet string length exceeds codec limit");
   }
   std::vector<std::uint8_t> out;

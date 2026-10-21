@@ -23,6 +23,7 @@
 #pragma once
 
 #include <cstddef>
+#include <asn1/common/result.hpp>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -63,7 +64,7 @@ struct BigInt {
    *  Parameters  : text — std::string text; negative — bool negative
    *  Returns     : static BigInt
    */
-  static BigInt from_decimal(std::string text, bool negative);
+  static Result<BigInt> from_decimal(std::string text, bool negative);
   /**
    *  Function    : from_i64
    *  Description : Computes from i64 from (v).
@@ -522,6 +523,7 @@ class TypeArena {
    *  Parameters  : id — TypeId id
    *  Returns     : Type&
    */
+  /// Programmer precondition: id belongs to this arena. Violation terminates.
   Type& get(TypeId id);
   /**
    *  Function    : get
@@ -536,6 +538,7 @@ class TypeArena {
    *  Parameters  : id — ValueId id
    *  Returns     : Value&
    */
+  /// Programmer precondition: id belongs to this arena. Violation terminates.
   Value& get_value(ValueId id);
   /**
    *  Function    : get_value

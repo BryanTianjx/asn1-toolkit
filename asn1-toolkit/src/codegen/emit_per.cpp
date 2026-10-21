@@ -589,8 +589,15 @@ void Emitter::emit_encode_body(std::ostream& out, const ir::Type& t, const std::
             << ".bit_length, " << size_constraint_expr(t.bit_string.size) << ");\n";
         break;
       case ir::TypeKind::String:
-        out << ind << per_string_encode_call(C, t.string.kind, expr,
-                                             size_constraint_expr(t.string.size)) << ";\n";
+        if (per_char_string_kind_expr(t.string.kind)) {
+          out << ind << "if (auto er = "
+              << per_string_encode_call(C, t.string.kind, expr,
+                                        size_constraint_expr(t.string.size))
+              << "; !er) return er.error();\n";
+        } else {
+          out << ind << per_string_encode_call(C, t.string.kind, expr,
+                                               size_constraint_expr(t.string.size)) << ";\n";
+        }
         break;
       case ir::TypeKind::SequenceOf: {
         const ir::Type& elem = resolve(model_, t.sequence_of.element);

@@ -34,6 +34,29 @@
 
 #include <gtest/gtest.h>
 
+TEST(CompilerErrors, BigIntDecimalValidationAndLimits) {
+  EXPECT_FALSE(asn1::ir::BigInt::from_decimal("12x", false));
+  EXPECT_FALSE(asn1::ir::BigInt::from_decimal("", false));
+  auto maximum = asn1::ir::BigInt::from_decimal("9223372036854775807", false);
+  auto minimum = asn1::ir::BigInt::from_decimal("9223372036854775808", true);
+  ASSERT_TRUE(maximum);
+  ASSERT_TRUE(minimum);
+  EXPECT_EQ(maximum.value().as_i64, INT64_MAX);
+  EXPECT_EQ(minimum.value().as_i64, INT64_MIN);
+  auto zero = asn1::ir::BigInt::from_decimal("000", true);
+  ASSERT_TRUE(zero);
+  EXPECT_FALSE(zero.value().negative);
+}
+
+TEST(CompilerErrors, SourceFileReturnsIoErrors) {
+  auto missing = asn1::SourceFile::from_path("/nonexistent/asn1-rev11.asn");
+  ASSERT_FALSE(missing);
+  EXPECT_EQ(missing.error().code, asn1::Error::Code::InvalidArgument);
+  // Reading a directory used to let streambuf iterator throw ios_base::failure.
+  auto directory = asn1::SourceFile::from_path(".");
+  EXPECT_FALSE(directory);
+}
+
 namespace {
 
 struct AnalyzeResult {
@@ -814,3 +837,12 @@ END
 }
 
 
+
+TEST(CompilerErrors, EnumInt64BoundaryDoesNotOverflow) {
+  auto valid = analyze_string("M DEFINITIONS ::= BEGIN E ::= ENUMERATED { top(9223372036854775807) } END");
+  EXPECT_TRUE(valid.diag.ok());
+  auto implicit = analyze_string("M DEFINITIONS ::= BEGIN E ::= ENUMERATED { near(9223372036854775806), last, overflow } END");
+  EXPECT_FALSE(implicit.diag.ok());
+  auto extension = analyze_string("M DEFINITIONS ::= BEGIN E ::= ENUMERATED { top(9223372036854775807), ..., overflow } END");
+  EXPECT_FALSE(extension.diag.ok());
+}

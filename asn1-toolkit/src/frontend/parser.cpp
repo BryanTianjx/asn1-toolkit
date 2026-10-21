@@ -23,10 +23,20 @@
 #include <asn1/frontend/parser.hpp>
 
 #include <string>
+#include <charconv>
 #include <utility>
 
 namespace asn1 {
 namespace {
+
+Result<std::uint64_t> parse_oid_arc(std::string_view text) {
+  std::uint64_t number = 0;
+  const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+  if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+    return Error{Error::Code::InvalidArgument, 0, "invalid OID arc number"};
+  return number;
+}
+
 
 /**
  *  Function    : merge_range
@@ -1689,10 +1699,10 @@ std::unique_ptr<ast::Value> Parser::parse_object_identifier_value() {
   while (!check(TokenKind::RBrace) && !check(TokenKind::EndOfFile)) {
     ast::ObjectIdentifierValue::Arc arc;
     if (check(TokenKind::Number)) {
-      try {
-        arc.number = std::stoull(std::string(current_.text));
-      } catch (...) {
-        error_at(current_, "invalid OID arc number");
+      {
+        auto parsed = parse_oid_arc(current_.text);
+        if (!parsed) error_at(current_, parsed.error().message);
+        else arc.number = parsed.value();
       }
       advance();
     } else if (check(TokenKind::Identifier)) {
@@ -1703,10 +1713,10 @@ std::unique_ptr<ast::Value> Parser::parse_object_identifier_value() {
           error_at(current_, "expected OID arc number");
           break;
         }
-        try {
-          arc.number = std::stoull(std::string(current_.text));
-        } catch (...) {
-          error_at(current_, "invalid OID arc number");
+        {
+          auto parsed = parse_oid_arc(current_.text);
+          if (!parsed) error_at(current_, parsed.error().message);
+          else arc.number = parsed.value();
         }
         advance();
         expect(TokenKind::RParen, "')'");
@@ -1949,10 +1959,10 @@ std::unique_ptr<ast::Value> Parser::parse_value() {
           while (!check(TokenKind::RBrace) && !check(TokenKind::EndOfFile)) {
             ast::ObjectIdentifierValue::Arc arc;
             if (check(TokenKind::Number)) {
-              try {
-                arc.number = std::stoull(std::string(current_.text));
-              } catch (...) {
-                error_at(current_, "invalid OID arc number");
+              {
+                auto parsed = parse_oid_arc(current_.text);
+                if (!parsed) error_at(current_, parsed.error().message);
+                else arc.number = parsed.value();
               }
               advance();
             } else if (check(TokenKind::Identifier)) {
@@ -1963,10 +1973,10 @@ std::unique_ptr<ast::Value> Parser::parse_value() {
                   error_at(current_, "expected OID arc number");
                   return false;
                 }
-                try {
-                  arc.number = std::stoull(std::string(current_.text));
-                } catch (...) {
-                  error_at(current_, "invalid OID arc number");
+                {
+                  auto parsed = parse_oid_arc(current_.text);
+                  if (!parsed) error_at(current_, parsed.error().message);
+                  else arc.number = parsed.value();
                 }
                 advance();
                 expect(TokenKind::RParen, "')'");
@@ -2000,10 +2010,10 @@ std::unique_ptr<ast::Value> Parser::parse_value() {
           error_at(current_, "expected OID arc number");
           return nullptr;
         }
-        try {
-          first.number = std::stoull(std::string(current_.text));
-        } catch (...) {
-          error_at(current_, "invalid OID arc number");
+        {
+          auto parsed = parse_oid_arc(current_.text);
+          if (!parsed) error_at(current_, parsed.error().message);
+          else first.number = parsed.value();
         }
         advance();
         expect(TokenKind::RParen, "')'");

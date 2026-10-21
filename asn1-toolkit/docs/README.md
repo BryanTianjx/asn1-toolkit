@@ -19,6 +19,8 @@
 | [c-runtime-contracts.md](c-runtime-contracts.md) | C11 原语的状态码、所有权、初始化/释放与失败后状态 | C 后端贡献者、集成方 |
 | [rev01-03-validation.md](rev01-03-validation.md) | 第一批修复的证据、实际命令、双构建与矩阵结果及验证边界 | 贡献者、评审者 |
 | [rev04-09-validation.md](rev04-09-validation.md) | 第二批 C PER 修复、独立差分及标准仲裁与验证边界 | 贡献者、评审者 |
+| [rev10-12-validation.md](rev10-12-validation.md) | 第三批 E-XER 生成、编译器错误与 Result/诊断验收 | 贡献者、评审者 |
+| [cpp-error-contracts.md](cpp-error-contracts.md) | Result 前置条件、源/线路位置单位、资源失败与 C++ API 迁移 | C++ 集成方、贡献者 |
 | [c-runtime-test-coverage.md](c-runtime-test-coverage.md) | C11 声明组的链接、调用、解码与负例登记 | C 后端贡献者 |
 | [changelog.md](changelog.md)       | Phase 1–45 里程碑、近期变更详录（含每项验证口径）                                                | 所有人       |
 | [comparison.md](comparison.md)     | 与 asn1c / Python asn1tools 的本地实测横向对比与选型建议                                     | 技术选型决策者   |

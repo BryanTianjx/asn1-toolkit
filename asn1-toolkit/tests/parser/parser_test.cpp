@@ -767,3 +767,15 @@ END
   EXPECT_TRUE(integer->encoding_instructions().empty());
 }
 
+TEST(Parser, OidOverflowPreservesSourceRange) {
+  for (const std::string arc : {"18446744073709551616", "named(18446744073709551616)"}) {
+    auto parsed = parse_string("M DEFINITIONS ::= BEGIN id OBJECT IDENTIFIER ::= { 1 2 " + arc + " } END", "overflow.asn");
+    ASSERT_FALSE(parsed.diag.ok());
+    const auto& error = parsed.diag.items().front();
+    EXPECT_EQ(error.message, "invalid OID arc number");
+    EXPECT_EQ(error.where.begin.file, "overflow.asn");
+    EXPECT_EQ(error.where.begin.line, 1);
+    EXPECT_GT(error.where.begin.column, 1);
+  }
+}
+

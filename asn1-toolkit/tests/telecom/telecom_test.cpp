@@ -50,7 +50,9 @@ struct LoadResult {
 
 LoadResult parse_file(const std::filesystem::path& path) {
   LoadResult r;
-  asn1::SourceFile file = asn1::SourceFile::from_path(path.string());
+  auto loaded = asn1::SourceFile::from_path(path.string());
+  if (!loaded) { ADD_FAILURE() << loaded.error().message; return {}; }
+  asn1::SourceFile file = std::move(loaded.value());
   asn1::Lexer lexer(file, r.diag);
   asn1::Parser parser(lexer, r.diag);
   r.modules = parser.parse_modules();

@@ -24,7 +24,8 @@
 
 #include <algorithm>
 #include <climits>
-#include <stdexcept>
+#include <cassert>
+#include <cstdlib>
 
 namespace asn1 {
 namespace ir {
@@ -49,7 +50,7 @@ bool all_digits(const std::string& s) {
  *  Returns     : std::optional<std::int64_t>
  */
 std::optional<std::int64_t> try_parse_i64(bool negative, const std::string& digits) {
-  if (digits.size() > 18) {
+  if (digits.size() > 19) {
     return std::nullopt;
   }
   std::uint64_t mag = 0;
@@ -80,7 +81,8 @@ std::optional<std::int64_t> try_parse_i64(bool negative, const std::string& digi
  *  Parameters  : text — std::string text; negative — bool negative
  *  Returns     : BigInt BigInt::
  */
-BigInt BigInt::from_decimal(std::string text, bool negative) {
+Result<BigInt> BigInt::from_decimal(std::string text, bool negative) {
+  if (!all_digits(text)) return Error{Error::Code::InvalidArgument, 0, "BigInt decimal requires digits"};
   BigInt b;
   b.negative = negative && text != "0";
   // strip leading zeros
@@ -89,13 +91,7 @@ BigInt BigInt::from_decimal(std::string text, bool negative) {
     ++i;
   }
   b.digits = text.substr(i);
-  if (b.digits.empty()) {
-    b.digits = "0";
-    b.negative = false;
-  }
-  if (!all_digits(b.digits)) {
-    throw std::invalid_argument("BigInt::from_decimal: non-digit content");
-  }
+  b.negative = negative && b.digits != "0";
   b.as_i64 = try_parse_i64(b.negative, b.digits);
   return b;
 }
@@ -383,28 +379,44 @@ ValueId TypeArena::add_value(Value value) {
  *  Parameters  : types_.at(id — TypeId id) { return types_.at(id
  *  Returns     : Type& TypeArena::get(TypeId id) { return types_.
  */
-Type& TypeArena::get(TypeId id) { return types_.at(id); }
+Type& TypeArena::get(TypeId id) {
+  assert(id < types_.size());
+  if (id >= types_.size()) std::abort();
+  return types_[id];
+}
 /**
  *  Function    : at
  *  Description : Computes at from (types_.at(id).
  *  Parameters  : types_.at(id — TypeId id) const { return types_.at(id
  *  Returns     : const Type& TypeArena::get(TypeId id) const { return types_.
  */
-const Type& TypeArena::get(TypeId id) const { return types_.at(id); }
+const Type& TypeArena::get(TypeId id) const {
+  assert(id < types_.size());
+  if (id >= types_.size()) std::abort();
+  return types_[id];
+}
 /**
  *  Function    : at
  *  Description : Computes at from (values_.at(id).
  *  Parameters  : values_.at(id — ValueId id) { return values_.at(id
  *  Returns     : Value& TypeArena::get_value(ValueId id) { return values_.
  */
-Value& TypeArena::get_value(ValueId id) { return values_.at(id); }
+Value& TypeArena::get_value(ValueId id) {
+  assert(id < values_.size());
+  if (id >= values_.size()) std::abort();
+  return values_[id];
+}
 /**
  *  Function    : at
  *  Description : Computes at from (values_.at(id).
  *  Parameters  : values_.at(id — ValueId id) const { return values_.at(id
  *  Returns     : const Value& TypeArena::get_value(ValueId id) const { return values_.
  */
-const Value& TypeArena::get_value(ValueId id) const { return values_.at(id); }
+const Value& TypeArena::get_value(ValueId id) const {
+  assert(id < values_.size());
+  if (id >= values_.size()) std::abort();
+  return values_[id];
+}
 
 }  // namespace ir
 }  // namespace asn1

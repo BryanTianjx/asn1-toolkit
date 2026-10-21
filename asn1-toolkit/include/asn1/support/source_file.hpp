@@ -23,6 +23,7 @@
 #pragma once
 
 #include <asn1/support/source_location.hpp>
+#include <asn1/common/result.hpp>
 
 #include <cstddef>
 #include <string>
@@ -51,14 +52,14 @@ class SourceFile {
    */
   static SourceFile from_string(std::string path, std::string contents);
 
-  /// Read a file from disk. Throws std::runtime_error on I/O failure.
+  /// Read a file from disk. Returns Error on I/O failure; bad_alloc may propagate.
   /**
    *  Function    : from_path
    *  Description : Computes from path from (path).
    *  Parameters  : path — const std::string& path
    *  Returns     : static SourceFile
    */
-  static SourceFile from_path(const std::string& path);
+  static Result<SourceFile> from_path(const std::string& path);
 
   /**
    *  Function    : path

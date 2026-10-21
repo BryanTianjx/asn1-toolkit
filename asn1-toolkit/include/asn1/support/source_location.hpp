@@ -26,7 +26,8 @@
 
 namespace asn1 {
 
-/// 1-based line and column, matching typical compiler diagnostics.
+/// 1-based source line and byte column (UTF-8 bytes, not Unicode characters).
+/// SourceRange is independent of runtime Error wire offsets and field paths.
 struct SourceLocation {
   std::string file;
   int line = 1;

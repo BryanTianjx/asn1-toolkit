@@ -22,7 +22,6 @@
 #include <asn1/support/source_file.hpp>
 
 #include <fstream>
-#include <stdexcept>
 #include <utility>
 
 namespace asn1 {
@@ -54,13 +53,20 @@ SourceFile SourceFile::from_string(std::string path, std::string contents) {
  *  Parameters  : path — const std::string& path
  *  Returns     : SourceFile SourceFile::
  */
-SourceFile SourceFile::from_path(const std::string& path) {
+Result<SourceFile> SourceFile::from_path(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
-    throw std::runtime_error("failed to open ASN.1 source file: " + path);
+    return Error{Error::Code::InvalidArgument, 0, "failed to open ASN.1 source file: " + path};
   }
-  std::string contents((std::istreambuf_iterator<char>(in)),
-                       std::istreambuf_iterator<char>());
+  std::string contents;
+  char block[8192];
+  while (in.read(block, sizeof(block)) || in.gcount() != 0) {
+    const auto count = static_cast<std::size_t>(in.gcount());
+    if (count > contents.max_size() - contents.size())
+      return Error{Error::Code::LengthOverflow, 0, "ASN.1 source exceeds string capacity: " + path};
+    contents.append(block, count);
+  }
+  if (in.bad()) return Error{Error::Code::InvalidArgument, 0, "failed to read ASN.1 source file: " + path};
   return SourceFile(path, std::move(contents));
 }
 

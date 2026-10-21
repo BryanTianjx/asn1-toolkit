@@ -48,6 +48,21 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <asn1/support/async.hpp>
+
+TEST(ParallelResources, ThreadFailureDefersAndAllocationFailurePropagates) {
+  int calls = 0;
+  auto work = [&] { ++calls; return 42; };
+  auto failed_launch = [](auto) -> std::future<int> {
+    throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+  };
+  auto result = asn1::detail::async_or_deferred(work, failed_launch);
+  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(result.get(), 42);
+  EXPECT_EQ(calls, 1);
+  auto no_memory = [](auto) -> std::future<int> { throw std::bad_alloc(); };
+  EXPECT_THROW((void)asn1::detail::async_or_deferred(work, no_memory), std::bad_alloc);
+}
 
 namespace {
 
@@ -114,7 +129,9 @@ AnalyzeRun run(const std::string& text, int parallelism) {
 
 AnalyzeRun run_file(const fs::path& asn_path, int parallelism) {
   AnalyzeRun r;
-  asn1::SourceFile file = asn1::SourceFile::from_path(asn_path.string());
+  auto loaded = asn1::SourceFile::from_path(asn_path.string());
+  if (!loaded) { ADD_FAILURE() << loaded.error().message; return {}; }
+  asn1::SourceFile file = std::move(loaded.value());
   asn1::Diagnostics parse_diag;
   asn1::Lexer lexer(file, parse_diag);
   asn1::Parser parser(lexer, parse_diag);

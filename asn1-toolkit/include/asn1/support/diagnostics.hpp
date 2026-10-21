@@ -38,7 +38,8 @@ struct Diagnostic {
   std::string message;
 };
 
-/// Collects frontend / semantic diagnostics. Does not throw.
+/// Collects frontend / semantic diagnostics; allocation failure may propagate.
+/// Locations refer to source text, never to encoded wire offsets.
 class Diagnostics {
  public:
   /**

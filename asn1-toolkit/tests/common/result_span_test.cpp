@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include <gtest/gtest.h>
 
@@ -78,4 +79,25 @@ TEST(Span, EmptyDefault) {
   EXPECT_TRUE(empty.empty());
   EXPECT_EQ(empty.size(), 0u);
   EXPECT_EQ(empty.data(), nullptr);
+}
+
+TEST(Result, ConstAndMoveOnlyAccess) {
+  asn1::Result<std::unique_ptr<int>> value(std::make_unique<int>(17));
+  const auto& view = value;
+  ASSERT_TRUE(view);
+  EXPECT_EQ(*view.value(), 17);
+  auto moved = std::move(value).value();
+  EXPECT_EQ(*moved, 17);
+  const asn1::Result<int> error(asn1::Error{asn1::Error::Code::InvalidArgument, 4, "bad"});
+  EXPECT_EQ(error.error().offset, 4u);
+  EXPECT_EQ(error.error().offset_unit, asn1::Error::OffsetUnit::Unknown);
+}
+
+TEST(Result, AccessorMisuseTerminates) {
+  asn1::Result<int> error(asn1::Error{});
+  EXPECT_DEATH((void)error.value(), "");
+  asn1::Result<int> value(1);
+  EXPECT_DEATH((void)value.error(), "");
+  auto ok = asn1::Result<void>::success();
+  EXPECT_DEATH((void)ok.error(), "");
 }

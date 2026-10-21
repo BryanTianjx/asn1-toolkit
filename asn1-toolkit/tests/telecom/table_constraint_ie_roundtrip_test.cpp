@@ -87,8 +87,8 @@ TEST(TableConstraintIE, TypedDecodeDispatchesOnGovernorId) {
   ie.criticality = tc_test::Criticality::reject;
   {
     asn1::BitWriter sub;
-    asn1::uper::encode_integer(
-        sub, 16777215, asn1::per::IntegerConstraint{0, 16777215, false});
+    ASSERT_TRUE(asn1::uper::encode_integer(
+        sub, 16777215, asn1::per::IntegerConstraint{0, 16777215, false}).ok());
     ie.value = sub.take();
   }
 
@@ -112,8 +112,8 @@ TEST(TableConstraintIE, FixedTypeFieldIsNotSpecialized) {
   ie.criticality = tc_test::Criticality::notify;
   {
     asn1::BitWriter sub;
-    asn1::uper::encode_integer(
-        sub, 7, asn1::per::IntegerConstraint{0, 4294967295, false});
+    ASSERT_TRUE(asn1::uper::encode_integer(
+        sub, 7, asn1::per::IntegerConstraint{0, 4294967295, false}).ok());
     ie.value = sub.take();
   }
 
@@ -136,8 +136,8 @@ TEST(TableConstraintIE, UnknownGovernorIdKeepsRawBytes) {
   ie.criticality = tc_test::Criticality::ignore;
   {
     asn1::BitWriter sub;
-    asn1::uper::encode_integer(
-        sub, 42, asn1::per::IntegerConstraint{0, 4294967295, false});
+    ASSERT_TRUE(asn1::uper::encode_integer(
+        sub, 42, asn1::per::IntegerConstraint{0, 4294967295, false}).ok());
     ie.value = sub.take();
   }
 

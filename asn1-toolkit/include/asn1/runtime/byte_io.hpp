@@ -174,10 +174,12 @@ class ByteReader {
  *  Parameters  : code — Error::Code code; offset — std::size_t offset; message — std::string message
  *  Returns     : inline Error
  */
-inline Error make_error(Error::Code code, std::size_t offset, std::string message) {
+inline Error make_error(Error::Code code, std::size_t offset, std::string message,
+                        Error::OffsetUnit unit = Error::OffsetUnit::Unknown) {
   Error e;
   e.code = code;
   e.offset = offset;
+  e.offset_unit = unit;
   /**
    *  Function    : move
    *  Description : Computes move from (message).

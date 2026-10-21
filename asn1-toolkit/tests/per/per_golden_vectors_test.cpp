@@ -38,6 +38,13 @@
 
 #include <gtest/gtest.h>
 
+TEST(PerGolden, GeneratedEncoderPropagatesAlphabetFailure) {
+  pg::Date invalid(std::string(8, '\x01'));
+  asn1::BitWriter uper, aper;
+  EXPECT_FALSE(pg::encode_uper(uper, invalid).ok());
+  EXPECT_FALSE(pg::encode_aper(aper, invalid).ok());
+}
+
 #ifndef ASN1_PER_GOLDEN_FILE
 #error "ASN1_PER_GOLDEN_FILE must be defined by the build"
 #endif

@@ -98,7 +98,7 @@ gtest_discover_tests(asn1_per_tests)
 set(ASN1_PER_GOLDEN_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_per_golden")
 add_custom_command(
   OUTPUT "${ASN1_PER_GOLDEN_GEN_DIR}/generated.hpp" "${ASN1_PER_GOLDEN_GEN_DIR}/generated.cpp"
-  COMMAND asn1cxx --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec per
+  COMMAND asn1cxx --no-emit-cache --emit-dir "${ASN1_PER_GOLDEN_GEN_DIR}" --codec per
           --namespace pg
           "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
   DEPENDS asn1cxx "${CMAKE_SOURCE_DIR}/tests/fixtures/telecom/per_golden.asn"
@@ -488,3 +488,29 @@ target_compile_definitions(asn1_emit_cache_tests PRIVATE
 target_link_libraries(asn1_emit_cache_tests PRIVATE
   asn1::frontend asn1::semantic asn1::codegen GTest::gtest_main)
 gtest_discover_tests(asn1_emit_cache_tests)
+
+# REV-10: compile, link and run the same E-XER negative cases in every shape.
+foreach(_mode IN ITEMS outline inline split)
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_attributes_${_mode}")
+  set(_flags "")
+  set(_cpp "${_dir}/generated.cpp")
+  if(_mode STREQUAL "inline")
+    set(_flags --emit-inline)
+  elseif(_mode STREQUAL "split")
+    set(_flags --emit-split)
+    set(_cpp "${_dir}/AttrTest.cpp")
+  endif()
+  add_custom_command(
+    OUTPUT "${_dir}/generated.hpp" "${_cpp}"
+    COMMAND asn1cxx --no-emit-cache --codec exer ${_flags} --emit-dir "${_dir}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exer/attributes.asn"
+    DEPENDS asn1cxx "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exer/attributes.asn"
+    VERBATIM)
+  add_executable(asn1_attributes_${_mode}_tests codegen/exer_attributes_test.cpp "${_cpp}")
+  target_include_directories(asn1_attributes_${_mode}_tests PRIVATE "${_dir}")
+  if(_mode STREQUAL "split")
+    target_compile_definitions(asn1_attributes_${_mode}_tests PRIVATE ATTR_SPLIT)
+  endif()
+  target_link_libraries(asn1_attributes_${_mode}_tests PRIVATE asn1::exer GTest::gtest_main)
+  gtest_discover_tests(asn1_attributes_${_mode}_tests TEST_PREFIX "${_mode}.")
+endforeach()

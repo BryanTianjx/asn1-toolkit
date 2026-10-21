@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <charconv>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -141,7 +142,9 @@ void print_usage(std::ostream& out) {
  */
 int dump_tokens(const std::string& path) {
   asn1::Diagnostics diag;
-  asn1::SourceFile file = asn1::SourceFile::from_path(path);
+  auto loaded = asn1::SourceFile::from_path(path);
+  if (!loaded) { std::cerr << "asn1cxx: " << loaded.error().message << '\n'; return EXIT_FAILURE; }
+  asn1::SourceFile file = std::move(loaded.value());
   asn1::Lexer lexer(file, diag);
 
   std::cout << "; tokens for " << path << '\n';
@@ -172,7 +175,9 @@ int dump_tokens(const std::string& path) {
  */
 int dump_ast(const std::string& path) {
   asn1::Diagnostics diag;
-  asn1::SourceFile file = asn1::SourceFile::from_path(path);
+  auto loaded = asn1::SourceFile::from_path(path);
+  if (!loaded) { std::cerr << "asn1cxx: " << loaded.error().message << '\n'; return EXIT_FAILURE; }
+  asn1::SourceFile file = std::move(loaded.value());
   asn1::Lexer lexer(file, diag);
   asn1::Parser parser(lexer, diag);
   auto modules = parser.parse_modules();
@@ -198,7 +203,9 @@ asn1::ir::Model analyze_files(const std::vector<std::string>& paths, asn1::Diagn
   std::vector<std::unique_ptr<asn1::ast::Module>> modules;
   files.reserve(paths.size());
   for (const std::string& path : paths) {
-    files.push_back(asn1::SourceFile::from_path(path));
+    auto loaded = asn1::SourceFile::from_path(path);
+    if (!loaded) { diag.error({{path, 1, 1}, {path, 1, 1}}, loaded.error().message); return {}; }
+    files.push_back(std::move(loaded.value()));
     asn1::Lexer lexer(files.back(), diag);
     asn1::Parser parser(lexer, diag);
     auto file_modules = parser.parse_modules();
@@ -242,8 +249,13 @@ HitMiss latest_cache_stats(const asn1::Diagnostics& diag) {
     const auto slash = msg.find('/', pos);
     const auto space = msg.find(' ', slash);
     if (slash == std::string::npos || space == std::string::npos) return {0, 0};
-    return {static_cast<std::size_t>(std::stoul(msg.substr(pos + 12, slash - pos - 12))),
-            static_cast<std::size_t>(std::stoul(msg.substr(slash + 1, space - slash - 1)))};
+    HitMiss result{};
+    const char* begin = msg.data();
+    auto hits = std::from_chars(begin + pos + 12, begin + slash, result.hits);
+    auto total = std::from_chars(begin + slash + 1, begin + space, result.total);
+    if (hits.ec != std::errc{} || hits.ptr != begin + slash ||
+        total.ec != std::errc{} || total.ptr != begin + space) return {0, 0};
+    return result;
   }
   return {0, 0};
 }
@@ -259,7 +271,9 @@ int emit_code(const std::vector<std::string>& paths, const std::string& dir,
     return EXIT_FAILURE;
   }
 
-  std::filesystem::create_directories(dir);
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  if (ec) { std::cerr << "asn1cxx: cannot create output directory " << dir << ": " << ec.message() << '\n'; return EXIT_FAILURE; }
   asn1::codegen::EmitOptions opt;
   opt.codec = codec;
   opt.basename = "generated";
@@ -271,7 +285,9 @@ int emit_code(const std::vector<std::string>& paths, const std::string& dir,
   // into the unit key so a source edit naturally invalidates the entry.
   opt.source_paths.reserve(paths.size());
   for (const std::string& p : paths) {
-    opt.source_paths.push_back(std::filesystem::absolute(p));
+    auto absolute = std::filesystem::absolute(p, ec);
+    if (ec) { std::cerr << "asn1cxx: cannot resolve input path " << p << ": " << ec.message() << '\n'; return EXIT_FAILURE; }
+    opt.source_paths.push_back(std::move(absolute));
   }
 
   if (emit_split) {
@@ -417,17 +433,13 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
       }
       const std::string v = argv[++i];
-      try {
-        const long n = std::stol(v);
-        if (n < 0 || n > 1024) {
-          std::cerr << "asn1cxx: --parallel must be 0..1024\n";
-          return EXIT_FAILURE;
-        }
-        parallelism = static_cast<int>(n);
-      } catch (const std::exception&) {
-        std::cerr << "asn1cxx: --parallel requires an integer (got '" << v << "')\n";
+      int n = 0;
+      const auto parsed = std::from_chars(v.data(), v.data() + v.size(), n);
+      if (parsed.ec != std::errc{} || parsed.ptr != v.data() + v.size() || n < 0 || n > 1024) {
+        std::cerr << "asn1cxx: --parallel requires an integer in 0..1024 (got '" << v << "')\n";
         return EXIT_FAILURE;
       }
+      parallelism = n;
       continue;
     }
     if (arg == "--codec") {
@@ -505,7 +517,9 @@ int main(int argc, char** argv) {
         }
       }
     }
-  } catch (const std::exception& ex) {
+  } catch (const std::bad_alloc&) {
+    throw;
+  } catch (const std::length_error& ex) {
     std::cerr << "asn1cxx: " << ex.what() << '\n';
     status = EXIT_FAILURE;
   }
