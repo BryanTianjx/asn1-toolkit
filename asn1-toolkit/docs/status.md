@@ -8,6 +8,8 @@
 
 **Phase 49 — C 语言代码生成器（P2-4，sub-task 1 + sub-task 2 已落地；sub-task 3+ 未排期）。**
 
+- **2026-10-21，REV-20..24**：补标准能力与 REAL/字符/时间 profile；修复约束保真、常量/值参数解析、整数窄化及规范策略缺口。GCC Release/ASan+UBSan 各 **430/430**，实际矩阵 **84/84**，MSVC 针对性 **59/59**；外部对验、Clang sanitizer fuzz 与后续能力项见 [第五批验收](rev20-24-validation.md) 和 [能力矩阵](standard-capabilities.md)。
+
 - **2026-10-21，REV-13..19**：修复缓存生成器指纹/输入顺序及有界并发；补 JERI 产品入口与控制段错误诊断，隔离 OER/XML 组合策略；落地离线、宿主/目标构建和安装包。GCC/Clang Release、ASan+UBSan 四轮各 **392/392**，实际入口矩阵 **84/84**；MSVC、最低 CMake 3.16.8 与 AArch64 链接证据见 [第四批验收](rev13-19-validation.md)。设备运行与完整标准语义审计仍未宣称完成。
 
 - **2026-10-20，REV-10..12**：修复 E-XER 属性错误传播与三种生成形态回归；
@@ -105,8 +107,8 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | GCC 13.3 / Clang 18.1.3 各 **392/392**，0 失败（2026-10-21，WSL Ubuntu 24.04） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | GCC / Clang 各 **392/392**，0 失败；启用 leak detection / halt_on_error |
+| Release 构建 ctest | GCC 13.3 **430/430**（2026-10-21，WSL）；完整 Clang 历史轮次见第四批记录 |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | GCC **430/430**；启用 leak detection / halt_on_error；本批 Clang 为独立受限 fuzz 验证 |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态

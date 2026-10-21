@@ -18,6 +18,57 @@ FetchContent_MakeAvailable(googletest)
 
 include(GoogleTest)
 
+foreach(_mode IN ITEMS outline inline split)
+  set(_dir "${CMAKE_CURRENT_BINARY_DIR}/standard_${_mode}")
+  set(_flags "")
+  set(_cpp "${_dir}/generated.cpp")
+  if(_mode STREQUAL "inline")
+    set(_flags --emit-inline)
+  elseif(_mode STREQUAL "split")
+    set(_flags --emit-split)
+    set(_cpp "${_dir}/Standards.cpp")
+  endif()
+  add_custom_command(OUTPUT "${_dir}/generated.hpp" "${_cpp}"
+    COMMAND "${ASN1_GENERATOR}" --no-emit-cache --codec ber,der,cer,uper,aper,oer,coer,xer,cxer,exer,jer,jeri
+      ${_flags} --emit-dir "${_dir}" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/standards.asn"
+    DEPENDS ${ASN1_GENERATOR_DEPENDENCY} "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/standards.asn" VERBATIM)
+  add_executable(asn1_standard_${_mode}_tests codegen/standard_generated_test.cpp "${_cpp}")
+  target_include_directories(asn1_standard_${_mode}_tests PRIVATE "${_dir}")
+  target_link_libraries(asn1_standard_${_mode}_tests PRIVATE asn1::per asn1::cer asn1::coer asn1::exer asn1::cxer asn1::jeri GTest::gtest_main)
+  if(_mode STREQUAL "split")
+    target_compile_definitions(asn1_standard_${_mode}_tests PRIVATE STANDARD_SPLIT)
+  endif()
+  gtest_discover_tests(asn1_standard_${_mode}_tests TEST_PREFIX "${_mode}.")
+endforeach()
+add_executable(asn1_standard_oracle_driver codegen/standard_oracle_driver.cpp
+  "${CMAKE_CURRENT_BINARY_DIR}/standard_outline/generated.cpp")
+target_include_directories(asn1_standard_oracle_driver PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/standard_outline")
+target_link_libraries(asn1_standard_oracle_driver PRIVATE asn1::per asn1::cer asn1::coer asn1::exer asn1::cxer asn1::jeri)
+
+add_executable(asn1_standard_policy_tests runtime/standard_policy_test.cpp)
+target_link_libraries(asn1_standard_policy_tests PRIVATE asn1::ber asn1::der asn1::cer asn1::coer asn1::jer GTest::gtest_main)
+gtest_discover_tests(asn1_standard_policy_tests)
+
+add_executable(asn1_decoder_fuzz_regression fuzz/decoder_fuzz.cpp)
+target_compile_definitions(asn1_decoder_fuzz_regression PRIVATE ASN1_FUZZ_REGRESSION_MAIN
+  ASN1_FUZZ_SEEDS="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/seeds.txt")
+target_link_libraries(asn1_decoder_fuzz_regression PRIVATE asn1::cer asn1::coer asn1::xer asn1::jer)
+add_test(NAME DecoderFuzz.SeedRegression COMMAND asn1_decoder_fuzz_regression)
+option(ASN1_BUILD_FUZZERS "Build Clang libFuzzer decoder harness (development only)" OFF)
+if(ASN1_BUILD_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
+    message(FATAL_ERROR "ASN1_BUILD_FUZZERS requires Clang with libFuzzer")
+  endif()
+  add_executable(asn1_decoder_fuzzer fuzz/decoder_fuzz.cpp)
+  foreach(_runtime IN ITEMS asn1_runtime asn1_ber asn1_der asn1_cer asn1_oer asn1_coer asn1_xer asn1_jer)
+    target_compile_options(${_runtime} PRIVATE -fsanitize=fuzzer-no-link)
+    target_link_options(${_runtime} INTERFACE -fsanitize=fuzzer-no-link)
+  endforeach()
+  target_compile_options(asn1_decoder_fuzzer PRIVATE -fsanitize=fuzzer)
+  target_link_options(asn1_decoder_fuzzer PRIVATE -fsanitize=fuzzer)
+  target_link_libraries(asn1_decoder_fuzzer PRIVATE asn1::cer asn1::coer asn1::xer asn1::jer)
+endif()
+
 add_executable(asn1_common_tests common/result_span_test.cpp)
 target_link_libraries(asn1_common_tests PRIVATE asn1::common GTest::gtest_main)
 gtest_discover_tests(asn1_common_tests)
@@ -607,6 +658,12 @@ foreach(_entry IN LISTS _gate_names ITEMS combined combined_inline combined_spli
 endforeach()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME StandardOracle.FrozenReplay COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/scripts/validate_standard_oracles.py"
+    --driver "$<TARGET_FILE:asn1_standard_oracle_driver>")
+  add_test(NAME StandardCapabilities.Probes COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/scripts/validate_standard_capabilities.py"
+    --compiler "${ASN1_GENERATOR}" --output "${CMAKE_CURRENT_BINARY_DIR}/standard_capabilities")
   add_test(NAME CodecEntry.CombinationEquality COMMAND "${Python3_EXECUTABLE}"
     "${PROJECT_SOURCE_DIR}/scripts/validate_codec_entries.py" "${ASN1_GENERATOR}" ${_entry_executables})
   add_custom_target(asn1_codec_matrix

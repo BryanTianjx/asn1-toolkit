@@ -29,6 +29,9 @@
 | [codec-entries.md](codec-entries.md) | 12 产品入口、JERI 定义与函数/依赖映射 | 集成方 |
 | [build-and-package.md](build-and-package.md) | 离线、交叉两阶段、安装包与独立消费 | 集成方、CI |
 | [rev13-19-validation.md](rev13-19-validation.md) | 第四批实际验收范围与结果 | 评审者 |
+| [standard-capabilities.md](standard-capabilities.md) | 标准基线、语法/IR/生成/runtime、C/C++ 与 oracle 能力登记 | 集成方、评审者 |
+| [real-and-string-profile.md](real-and-string-profile.md) | REAL 数值 profile、字符 repertoire 与时间能力边界 | 集成方、贡献者 |
+| [rev20-24-validation.md](rev20-24-validation.md) | 第五批约束/规范策略修复、独立对验与 fuzz 证据 | 贡献者、评审者 |
 
 ## 阅读路径
 

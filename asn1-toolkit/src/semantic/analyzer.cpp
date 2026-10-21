@@ -537,6 +537,7 @@ std::string child_lower_name(LowerCtx& ctx, const std::string& parent,
 
 struct SubstEnv {
   std::unordered_map<std::string, const ast::ActualParameter*> by_name;
+  std::unordered_map<std::string, std::string> value_modules;
 };
 
 std::string actual_param_label(const ast::ActualParameter& a, const SubstEnv* subst,
@@ -572,6 +573,20 @@ std::string actual_param_label(const ast::ActualParameter& a, const SubstEnv* su
     return os;
   }
   if (a.value) {
+    if (const auto* integer = dynamic_cast<const ast::IntegerValue*>(a.value.get())) {
+      return std::string("V") + (integer->negative() ? "minus" : "") + integer->text();
+    }
+    if (const auto* ref = dynamic_cast<const ast::ValueReference*>(a.value.get())) {
+      if (subst) {
+        const auto found = subst->by_name.find(ref->name());
+        if (found != subst->by_name.end() && found->second && found->second != &a) {
+          const auto origin = subst->value_modules.find(ref->name());
+          return actual_param_label(*found->second, nullptr, index) +
+                 (origin == subst->value_modules.end() ? "" : "-from-" + origin->second);
+        }
+      }
+      return "V" + ref->name();
+    }
     return "V" + std::to_string(index);
   }
   return "X" + std::to_string(index);
@@ -579,11 +594,12 @@ std::string actual_param_label(const ast::ActualParameter& a, const SubstEnv* su
 
 std::string mangle_instantiation(const std::string& template_name,
                                  const std::vector<ast::ActualParameter>& actuals,
-                                 const SubstEnv* subst) {
+                                 const SubstEnv* subst, const std::string& caller_module) {
   std::string m = template_name;
   for (std::size_t i = 0; i < actuals.size(); ++i) {
     m += "-";
     m += actual_param_label(actuals[i], subst, i);
+    if (actuals[i].value) m += "-in-" + caller_module;
   }
   return m;
 }
@@ -592,6 +608,12 @@ const ast::ActualParameter* resolve_actual(const ast::ActualParameter& actual,
                                            const SubstEnv* subst) {
   if (!subst) {
     return &actual;
+  }
+  if (actual.value) {
+    if (const auto* ref = dynamic_cast<const ast::ValueReference*>(actual.value.get())) {
+      auto it = subst->by_name.find(ref->name());
+      if (it != subst->by_name.end() && it->second) return it->second;
+    }
   }
   if (actual.object_set_name) {
     auto it = subst->by_name.find(*actual.object_set_name);
@@ -1033,6 +1055,19 @@ ir::TypeId lower_embedded_or_charstring(LowerCtx& ctx, const std::string& assign
 
 ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& assigned_name,
                       const SubstEnv* subst) {
+  // These AST nodes have no constraint representation in IR. Do not silently
+  // erase a legal restriction (notably WITH COMPONENTS or a constrained alias).
+  if (type.constraint() &&
+      (dynamic_cast<const ast::ReferencedType*>(&type) ||
+       dynamic_cast<const ast::SequenceType*>(&type) ||
+       dynamic_cast<const ast::SetType*>(&type) ||
+       dynamic_cast<const ast::ChoiceType*>(&type) ||
+       dynamic_cast<const ast::BooleanType*>(&type) ||
+       dynamic_cast<const ast::NullType*>(&type) ||
+       dynamic_cast<const ast::EnumeratedType*>(&type))) {
+    ctx.diagnostics.error(type.constraint()->range(),
+                          "Unsupported constraint: this type has no constraint-preserving IR representation");
+  }
   if (const auto* ref = dynamic_cast<const ast::ReferencedType*>(&type)) {
     if (subst) {
       auto sit = subst->by_name.find(ref->name());
@@ -1066,15 +1101,25 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
         SubstEnv local;
         for (std::size_t i = 0; i < formals.size(); ++i) {
           local.by_name[formals[i].name] = resolve_actual(ref->actuals()[i], subst);
+          local.value_modules[formals[i].name] = ctx.mod.name();
+          if (subst) {
+            for (const auto& binding : subst->by_name) {
+              const auto origin = subst->value_modules.find(binding.first);
+              if (binding.second == local.by_name[formals[i].name] && origin != subst->value_modules.end())
+                local.value_modules[formals[i].name] = origin->second;
+            }
+          }
         }
         if (subst) {
           for (const auto& kv : subst->by_name) {
             if (!local.by_name.count(kv.first)) {
               local.by_name[kv.first] = kv.second;
+              const auto origin = subst->value_modules.find(kv.first);
+              if (origin != subst->value_modules.end()) local.value_modules[kv.first] = origin->second;
             }
           }
         }
-        const std::string mangled = mangle_instantiation(name, ref->actuals(), subst);
+        const std::string mangled = mangle_instantiation(name, ref->actuals(), subst, ctx.mod.name());
         const std::string inst_key = owner + "::" + mangled;
         if (auto it = ctx.named_ids.find(inst_key); it != ctx.named_ids.end()) {
           return it->second;
@@ -1214,27 +1259,47 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
   apply_outer_tag(out, type, ctx.mod.tag_default());
 
   auto val_resolver = [&](const std::string& name) -> std::optional<ir::BigInt> {
-    const Symbol* sym = ctx.symbols.lookup(ctx.mod.name(), name);
-    if (!sym) sym = ctx.symbols.find(ctx.mod.name(), name);
-    if (!sym) {
-      // Search all modules
-      for (const auto& pair : ctx.symbols.entries()) {
-        if (pair.second.kind == SymbolKind::Value && pair.second.name == name) {
-          sym = &pair.second;
-          break;
-        }
-      }
-    }
-    if (!sym) return std::nullopt;
-    if (sym->kind == SymbolKind::Value && sym->ast) {
-      if (const auto* va = dynamic_cast<const ast::ValueAssignment*>(sym->ast)) {
-        if (const auto* iv = dynamic_cast<const ast::IntegerValue*>(&va->value())) {
-          auto parsed = ir::BigInt::from_decimal(iv->text(), iv->negative());
+    std::string value_name = name;
+    std::string value_module = ctx.mod.name();
+    if (subst) {
+      const auto binding = subst->by_name.find(name);
+      if (binding != subst->by_name.end() && binding->second && binding->second->value) {
+        const auto* value = binding->second->value.get();
+        if (const auto* integer = dynamic_cast<const ast::IntegerValue*>(value)) {
+          auto parsed = ir::BigInt::from_decimal(integer->text(), integer->negative());
           if (!parsed) return std::nullopt;
           return std::move(parsed.value());
         }
+        if (const auto* reference = dynamic_cast<const ast::ValueReference*>(value)) {
+          value_name = reference->name();
+          const auto origin = subst->value_modules.find(name);
+          if (origin != subst->value_modules.end()) value_module = origin->second;
+        }
       }
     }
+    const Symbol* sym = ctx.symbols.lookup(value_module, value_name);
+    std::unordered_set<const Symbol*> visited;
+    while (sym && visited.insert(sym).second) {
+      if (sym->is_import) {
+        sym = ctx.symbols.find(sym->import_from_module, sym->name);
+        continue;
+      }
+      if (sym->kind != SymbolKind::Value) return std::nullopt;
+      const auto* assignment = dynamic_cast<const ast::ValueAssignment*>(sym->ast);
+      if (!assignment) return std::nullopt;
+      if (const auto* integer = dynamic_cast<const ast::IntegerValue*>(&assignment->value())) {
+        auto parsed = ir::BigInt::from_decimal(integer->text(), integer->negative());
+        if (!parsed) return std::nullopt;
+        return std::move(parsed.value());
+      }
+      if (const auto* reference = dynamic_cast<const ast::ValueReference*>(&assignment->value())) {
+        sym = ctx.symbols.lookup(sym->module, reference->name());
+        continue;
+      }
+      return std::nullopt;
+    }
+    // No global same-name fallback: unrelated modules must not determine
+    // a constraint's wire range. Cycles and unresolved values fail closed.
     return std::nullopt;
   };
 
@@ -1563,6 +1628,10 @@ ir::TypeId lower_type(LowerCtx& ctx, const ast::Type& type, const std::string& a
   } else if (dynamic_cast<const ast::RealType*>(&type)) {
     out.kind = ir::TypeKind::Real;
     out.real.ieee_form = real_ieee_form_from_constraint(type.constraint());
+    if (type.constraint() && out.real.ieee_form == ir::RealIeeeForm::Unconstrained) {
+      ctx.diagnostics.error(type.constraint()->range(),
+                            "Unsupported REAL constraint: cannot preserve this profile in IR");
+    }
   } else if (const auto* ocf = dynamic_cast<const ast::ObjectClassFieldType*>(&type)) {
     out.kind = ir::TypeKind::ObjectClassField;
     out.object_class_field.class_name = ocf->class_name();

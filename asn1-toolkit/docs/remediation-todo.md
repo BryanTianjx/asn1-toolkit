@@ -304,7 +304,9 @@
 
 ### REV-20 【重要】建立标准能力及 oracle 矩阵
 
-- [ ] 状态：待办；依据：当前支持混用 parse/emit/compile/互操作口径。
+- [x] 状态：完成本批核查与修复（2026-10-21）；后续能力保持独立排期。
+
+- 完成：标准版本/层次/C 与 C++/oracle 矩阵，21 项实际接受或拒绝探针；未支持项明确登记。验收见 [第五批记录](rev20-24-validation.md)。
 
 - 范围：新建能力矩阵文档、status/README 的引用。
 
@@ -316,7 +318,9 @@
 
 ### REV-21 【重要】约束保真和高频语法专项核查
 
-- [ ] 状态：待办；依据：unsupported constraint warning 后是否被当 unconstrained 仍需追踪。
+- [x] 状态：完成本批核查与修复（2026-10-21）；后续能力保持独立排期。
+
+- 完成：修复 REV-21a..g：未知约束、别名约束、负 SIZE、空交集、导入/循环常量、值参数及实例键、native INTEGER 解码窄化。验收见 [第五批记录](rev20-24-validation.md)。
 
 - 范围：parser、constraints、semantic、IR、相关 emitter。
 
@@ -328,7 +332,9 @@
 
 ### REV-22 【重要】规范策略与 BER/CER 合法替代表示
 
-- [ ] 状态：待办；依据：原语策略不足以独自证明结构规范性，部分 indefinite 路径明确受限。
+- [x] 状态：完成本批核查与修复（2026-10-21）；后续能力保持独立排期。
+
+- 完成：修复 CER 原语规范策略、REAL、DEFAULT、重复 SET、片段/unused bits、长度/递归限制，三种产物真实回归；剩余能力见 STD-02。验收见 [第五批记录](rev20-24-validation.md)。
 
 - 范围：BER/DER/CER、OER/COER、XER/CXER runtime 与结构 emitter。
 
@@ -340,7 +346,9 @@
 
 ### REV-23 【重要】REAL profile 与字符/时间长尾类型
 
-- [ ] 状态：待办；依据：double 值域及 BER base/exponent 支持有限；其他类型尚需核查。
+- [x] 状态：完成本批核查与修复（2026-10-21）；后续能力保持独立排期。
+
+- 完成：公开准确 REAL/字符/时间 profile；修复二进制精度/范围、负零、OER float 舍入及 JER bigint 误读；精确模型按 STD-03 延期。验收见 [第五批记录](rev20-24-validation.md)。
 
 - 范围：REAL、StringKind、parser/IR、各 codec 能力文档。
 
@@ -352,7 +360,9 @@
 
 ### REV-24 【重要】独立 oracle、负例与 fuzz
 
-- [ ] 状态：待办；依据：现有独立对验集中在部分二进制家族。
+- [x] 状态：完成本批核查与修复（2026-10-21）；后续能力保持独立排期。
+
+- 完成：新增带独立来源元数据的向量/冻结重放，复跑 Record 与 C PER 外部对验，新增种子回归和 Clang sanitizer 20000 次 fuzz。验收见 [第五批记录](rev20-24-validation.md)。
 
 - 范围：tests、golden、scripts、development。
 
@@ -361,6 +371,18 @@
 - 验收：明确无外部 oracle 的空白；oracle 分歧有条文仲裁；C/C++ 双向与外部验证均可重跑；fuzz 种子回归进入门禁。
 
 - 依赖：按 REV-05/06/20/22 修复进展逐步加入。
+
+## 后续标准能力（独立排期）
+
+第五批核查后的能力扩展继续单独排期（当前拒绝或受限，不作为完整标准能力）：
+
+- [ ] STD-01：继承约束交集、FROM、普通 WITH COMPONENTS、COMPONENTS OF、数字版本扩展组；匿名类型实参及其约束的多实例键专项回归；BigInteger 与各家族 encode 侧完整约束验证。
+- [ ] STD-02：时间规范词法、named BIT STRING 尾零、schema 感知 CER SET 顺序、COER/XML DEFAULT/未知扩展及 BER 构造替代形式。
+- [ ] STD-03：精确 REAL 数值模型及 XML/JSON 可逆文本；当前 host-double profile 不作精确十进制承诺。
+- [ ] STD-04：传统字符 repertoire、现代 TIME/DATE/IRI 类型和全部 encoding instructions。
+- [ ] STD-05：独立 CER/COER/CXER/E-XER 指令 oracle、长期 fuzz、C11 更多入口与完整生成 PDU 差分。
+
+证据与边界见 [第五批验收](rev20-24-validation.md)。这些能力项不替代下面 REV-25..28 的工程任务。
 
 ## 第六批：产物、分层与后端扩展
 

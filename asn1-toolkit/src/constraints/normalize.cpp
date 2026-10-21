@@ -203,7 +203,7 @@ ConstraintDesc normalize_intersection(std::vector<ConstraintDesc> parts,
     acc.recompute_envelope();
   }
   if (acc.empty) {
-    diagnostics.warning(where, "constraint intersection is empty");
+    diagnostics.error(where, "constraint intersection is empty; cannot generate an encodable type");
   }
   return acc;
 }
@@ -260,7 +260,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
       iv.lower = from_ast_value(range->lower(), resolver, diag);
       if (!iv.lower) {
         out.statically_foldable = false;
-        diag.warning(c->range(), "lower bound is not a static integer");
+        diag.error(c->range(), "Unsupported constraint: lower bound is not a resolved static integer");
         return out;
       }
     }
@@ -268,7 +268,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
       iv.upper = from_ast_value(range->upper(), resolver, diag);
       if (!iv.upper) {
         out.statically_foldable = false;
-        diag.warning(c->range(), "upper bound is not a static integer");
+        diag.error(c->range(), "Unsupported constraint: upper bound is not a resolved static integer");
         return out;
       }
     }
@@ -287,7 +287,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
     auto v = from_ast_value(&single->value(), resolver, diag);
     if (!v) {
       out.statically_foldable = false;
-      diag.warning(c->range(), "single-value constraint is not a static integer");
+      diag.error(c->range(), "Unsupported constraint: single value is not a resolved static integer");
       return out;
     }
     IntegerInterval iv;
@@ -306,7 +306,7 @@ ConstraintDesc normalize_ast(const ast::Constraint* c, Diagnostics& diag, const 
   }
 
   out.statically_foldable = false;
-  diag.warning(c->range(), "unsupported constraint form in Phase 5 normalizer");
+  diag.error(c->range(), "Unsupported constraint: cannot preserve this form in integer/SIZE IR");
   return out;
 }
 
@@ -321,6 +321,15 @@ ir::ConstraintDesc normalize_size(const ast::Constraint* constraint, Diagnostics
                                   ValueResolver resolver) {
   auto c = normalize_ast(constraint, diagnostics, resolver);
   c.is_size = true;
+  for (const auto& interval : c.root_ranges) {
+    const auto zero = ir::BigInt::from_i64(0);
+    if ((interval.lower && *interval.lower < zero) ||
+        (interval.upper && *interval.upper < zero)) {
+      diagnostics.error(constraint->range(), "invalid SIZE constraint: negative bound");
+      c.empty = true;
+      break;
+    }
+  }
   return c;
 }
 

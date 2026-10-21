@@ -673,8 +673,9 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
               << ind << "  " << expr << " = std::move(tmp.value());\n";
         } else {
           out << ind << "  auto tmp = " << NS << "::decode_integer(r, " << tag << ");\n"
-              << ind << "  if (!tmp) return tmp.error();\n"
-              << ind << "  " << expr << " = static_cast<" << integer_host_type(rt.integer)
+              << ind << "  if (!tmp) return tmp.error();\n";
+          emit_native_integer_guard(out, rt.integer, "tmp.value()", ind + "  ");
+          out << ind << "  " << expr << " = static_cast<" << integer_host_type(rt.integer)
               << ">(tmp.value());\n";
         }
         out << ind << "}\n";
@@ -763,9 +764,7 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
           // Mandatory components must be present.
           for (const ir::Field* fp : ordered) {
             const ir::Field& f = *fp;
-            if (f.presence == ir::Presence::Mandatory) {
-              out << ind << "    bool seen_" << cpp_ident(f.name) << " = false;\n";
-            }
+            out << ind << "    bool seen_" << cpp_ident(f.name) << " = false;\n";
           }
           out << ind << "    while (r.remaining() > 0) {\n";
           out << ind << "      asn1::ByteReader peek_r(r.remaining_span());\n";
@@ -805,11 +804,16 @@ void Emitter::emit_tlv_decode_body(std::ostream& out, const ir::Type& t, const s
                   ber_tag_expr(f.tag, type_is_constructed(ft) || f.tag.is_explicit);
               out << ind << "      if (hdr.value().tag == " << expect << ") {\n";
             }
-            if (f.presence == ir::Presence::Mandatory) {
-              out << ind << "        seen_" << cpp_ident(f.name) << " = true;\n";
-            }
+            out << ind << "        if (seen_" << cpp_ident(f.name)
+                << ") return asn1::make_error(asn1::Error::Code::InvalidArgument, r.offset(), \"duplicate SET component\");\n";
+            out << ind << "        seen_" << cpp_ident(f.name) << " = true;\n";
             emit_tlv_field_decode_value(out, ft, &f, expr + "." + cpp_ident(f.name), tlv,
                                         ind + "        ");
+            if (der && f.presence == ir::Presence::Default && f.default_value) {
+              const auto def = default_val_cpp(f);
+              if (!def.empty()) out << ind << "        if (" << expr << "." << cpp_ident(f.name)
+                  << " == " << def << ") return asn1::make_error(asn1::Error::Code::NonCanonical, r.offset(), \"explicit DEFAULT value\");\n";
+            }
             out << ind << "      } else ";
           }
           out << ind << "      {\n";
@@ -1028,6 +1032,11 @@ void Emitter::emit_tlv_field_decode_stmt(std::ostream& out, const ir::Field& f, 
       out << ind << "  auto hdr = asn1::ber::decode_tlv_header(peek_r);\n";
       out << ind << "  if (hdr && hdr.value().tag == " << expect << ") {\n";
       emit_tlv_field_decode_value(out, ft, &f, expr + "." + fname, tlv, ind + "    ");
+      if (der && f.default_value) {
+        const auto def = default_val_cpp(f);
+        if (!def.empty()) out << ind << "    if (" << expr << "." << fname << " == " << def
+            << ") return asn1::make_error(asn1::Error::Code::NonCanonical, r.offset(), \"explicit DEFAULT value\");\n";
+      }
       out << ind << "  } else {\n";
       if (f.default_value) {
         const std::string def_expr = default_val_cpp(f);

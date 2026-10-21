@@ -482,6 +482,7 @@ void Emitter::emit_jer_decode_body(std::ostream& out, const ir::Type& t, const s
         } else {
           out << ind << "  auto tmp = asn1::jeri::decode_integer(" << v_expr << ");\n";
           out << ind << "  if (!tmp) return tmp.error();\n";
+          emit_native_integer_guard(out, rt.integer, "tmp.value()", ind + "  ");
           out << ind << "  " << expr << " = static_cast<" << integer_host_type(rt.integer)
               << ">(tmp.value());\n";
         }

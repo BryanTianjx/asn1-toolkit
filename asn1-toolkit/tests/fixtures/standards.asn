@@ -1,0 +1,8 @@
+Standards DEFINITIONS AUTOMATIC TAGS ::= BEGIN
+  Record ::= SEQUENCE { count INTEGER (0..255), enabled BOOLEAN, text UTF8String }
+  Def ::= SEQUENCE { count INTEGER DEFAULT 7 }
+  DefSet ::= SET { count [0] INTEGER DEFAULT 7, flag [1] BOOLEAN OPTIONAL }
+  Param {INTEGER : upper} ::= SEQUENCE { value INTEGER (0..upper) }
+  Small ::= Param {3}
+  Wide ::= Param {7}
+END

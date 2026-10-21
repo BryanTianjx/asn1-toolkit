@@ -20,6 +20,10 @@ CLI、C++ EmitOptions 均提供以下入口；当前 C emitter 尚未完成，�
 | jeri | 项目 JER instruction 入口，非独立传输语法 | jeri | asn1::jeri | 转发共享 JER 实现，不另造 canonical JSON |
 
 消费目标列是覆盖指令辅助调用的家族依赖，非每个最小 schema 都需要其中全部符号。
+CER 的共同规范原语检查复用 DER，当前 `asn1::cer` 传递依赖
+`asn1::der` → `asn1::ber`；构造形式与分片策略仍由 CER 实现。
+手工指定静态库时也必须包含该依赖链，推荐使用导出的 CMake 目标。
+局部标准能力及后续空白见 [标准能力矩阵](standard-capabilities.md)。
 `asn1::jeri` 传递依赖 `asn1::jer`；生成的 JER 可调用 `asn1::jeri::*`，因此统一使用前者。
 JERI 选择会生成共享 `encode_jer/decode_jer` 以及 `encode_jeri/decode_jeri` 入口，
 组合同时选择 JER/JERI 时共享实现只生成一次。现有 JER 不改为“忽略指令”模式，

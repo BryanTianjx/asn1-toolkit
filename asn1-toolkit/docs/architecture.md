@@ -54,7 +54,9 @@ ASN.1 源码
 - **电信语法全量落地。** CLASS / 对象与对象集 / `Class.&field` / 表约束与
   组件关系约束 / 参数化类型 / `IMPORTS Name{}` / WITH SYNTAX 定义语法 /
   版本括号 `[[...]]` / INSTANCE OF / EXTERNAL / EMBEDDED PDV /
-  CHARACTER STRING / REAL / >64 位 INTEGER 均已实现（各 Phase 落地时间见
+  CHARACTER STRING / REAL / >64 位 INTEGER 存在实现路径，具体语法/IR/生成/runtime
+  和验证边界见 [标准能力登记](standard-capabilities.md)；REAL、字符与时间的
+  限定 profile 见 [专页](real-and-string-profile.md)（各 Phase 落地时间见
   [changelog.md](changelog.md)）。`OCTET STRING` / `BIT STRING (CONTAINING Type)`
   [ENCODED BY …] 降为带 `containing` 类型 id 的 IR，外层编解码按八位组/位处理。
 - **C++17 only。** 用 `std::optional` / `std::variant` / `std::string_view` /

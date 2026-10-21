@@ -21,9 +21,17 @@
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <asn1/runtime/bit_io.hpp>
+#include <asn1/runtime/cer/codec.hpp>
 int main() {
   asn1::BitWriter writer;
   writer.put_bits(42, 8);
   auto bytes = writer.take();
-  return bytes.size() == 1 && bytes[0] == 42 ? 0 : 1;
+  if (bytes.size() != 1 || bytes[0] != 42) return 1;
+  // CER's canonical primitive decoder must bring DER/BER transitively from
+  // the installed package; consumers do not name those implementation targets.
+  asn1::ByteWriter encoded;
+  asn1::cer::encode_boolean(encoded, true);
+  asn1::ByteReader input(encoded.buffer());
+  auto value = asn1::cer::decode_boolean(input);
+  return value && value.value() && input.remaining() == 0 ? 0 : 1;
 }

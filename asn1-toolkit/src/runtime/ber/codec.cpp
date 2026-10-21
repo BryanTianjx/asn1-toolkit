@@ -21,6 +21,7 @@
 **                 asn1-toolkit/README.md
 ***************************************************************************/
 #include <asn1/runtime/ber/codec.hpp>
+#include <asn1/runtime/limits.hpp>
 #include <asn1/common/float_conv.hpp>
 
 #include <cmath>
@@ -814,13 +815,34 @@ Result<double> decode_real_binary(Span<const std::uint8_t> data, std::size_t err
     return make_error(Error::Code::InvalidArgument, err_offset,
                       "REAL binary encoding missing mantissa");
   }
-  // Mantissa as unsigned big-endian integer.
-  double mant = 0.0;
-  for (std::size_t i = offset; i < data.size(); ++i) {
-    mant = mant * 256.0 + static_cast<double>(data[i]);
+  // Strip zero bits before converting: accumulating an arbitrary mantissa in
+  // double would silently round (or overflow before applying its exponent).
+  std::size_t first = offset;
+  while (first < data.size() && data[first] == 0) ++first;
+  if (first == data.size()) {
+    return make_error(Error::Code::InvalidArgument, err_offset, "binary REAL has zero mantissa");
   }
+  std::size_t last = data.size() - 1;
+  int trailing = 0;
+  while (data[last] == 0) { trailing += 8; --last; }
+  std::uint8_t tail = data[last];
+  while ((tail & 1u) == 0) { ++trailing; tail >>= 1; }
+  unsigned leading = 0;
+  for (auto head = data[first]; head != 0; head >>= 1) ++leading;
+  const std::size_t significant = (data.size() - first - 1) * 8 + leading - trailing;
+  if (significant > 53) {
+    return make_error(Error::Code::Unsupported, err_offset, "REAL exceeds exact binary64 precision");
+  }
+  double mant = 0;
+  for (std::size_t i = first; i <= last; ++i) mant = mant * 256 + data[i];
+  const int residual = trailing % 8;
+  mant = std::ldexp(mant, -residual);
   // Apply scale F: multiply mantissa by 2^F (X.690).
-  double value = std::ldexp(mant, exponent + static_cast<int>(scale));
+  const int power = exponent + static_cast<int>(scale) + trailing;
+  double value = std::ldexp(mant, power);
+  if (!std::isfinite(value) || value == 0 || std::ldexp(value, -power) != mant) {
+    return make_error(Error::Code::Unsupported, err_offset, "REAL exceeds exact binary64 range");
+  }
   if ((control & 0x40u) != 0) {
     value = -value;
   }
@@ -856,7 +878,7 @@ Result<double> decode_real_special(std::uint8_t control, std::size_t offset) {
  *  Returns     : Result<double>
  */
 Result<double> decode_real_decimal(Span<const std::uint8_t> data, std::size_t offset) {
-  if (data.size() < 2) {
+  if (data.size() < 2 || data[0] < 1 || data[0] > 3) {
     return make_error(Error::Code::InvalidArgument, offset,
                       "decimal REAL missing digits");
   }
@@ -871,9 +893,68 @@ Result<double> decode_real_decimal(Span<const std::uint8_t> data, std::size_t of
     text.push_back(c);
   }
   double v = 0.0;
-  if (!parse_double_c_locale(text, v)) {
+  if (!parse_double_c_locale(text, v) || !std::isfinite(v)) {
     return make_error(Error::Code::InvalidArgument, offset, "invalid decimal REAL");
   }
+  // Exact decimal subset: uint64 significand and bounded decimal exponent.
+  // Division by 5 must be exact before representing a decimal fraction in
+  // binary64. Reject all other legal values explicitly rather than rounding.
+  std::uint64_t significand = 0;
+  int decimal_power = 0;
+  bool fraction = false;
+  std::size_t i = (!text.empty() && (text[0] == '-' || text[0] == '+')) ? 1 : 0;
+  for (; i < text.size() && text[i] != 'E' && text[i] != 'e'; ++i) {
+    const char c = text[i];
+    if (c == '.') { fraction = true; continue; }
+    if (c < '0' || c > '9' ||
+        significand > (UINT64_MAX - static_cast<unsigned>(c - '0')) / 10) {
+      return make_error(Error::Code::Unsupported, offset, "decimal REAL outside exact binary64 profile");
+    }
+    significand = significand * 10 + static_cast<unsigned>(c - '0');
+    if (fraction) --decimal_power;
+  }
+  if (i < text.size()) {
+    ++i;
+    bool negative = false;
+    if (i < text.size() && (text[i] == '+' || text[i] == '-')) negative = text[i++] == '-';
+    int exponent = 0;
+    for (; i < text.size(); ++i) {
+      if (text[i] < '0' || text[i] > '9' || exponent > 400) {
+        return make_error(Error::Code::Unsupported, offset, "decimal REAL exponent outside profile");
+      }
+      exponent = exponent * 10 + text[i] - '0';
+    }
+    decimal_power += negative ? -exponent : exponent;
+  }
+  if (decimal_power < -400 || decimal_power > 400) {
+    return make_error(Error::Code::Unsupported, offset, "decimal REAL exponent outside profile");
+  }
+  int binary_power = decimal_power;
+  for (; decimal_power < 0; ++decimal_power) {
+    if (significand % 5 != 0) {
+      return make_error(Error::Code::Unsupported, offset, "decimal REAL requires rounding in binary64");
+    }
+    significand /= 5;
+  }
+  for (; decimal_power > 0; --decimal_power) {
+    if (significand > UINT64_MAX / 5) {
+      return make_error(Error::Code::Unsupported, offset, "decimal REAL significand outside profile");
+    }
+    significand *= 5;
+  }
+  if (significand == 0) {
+    return make_error(Error::Code::InvalidArgument, offset, "REAL zero must use empty contents");
+  }
+  while ((significand & 1u) == 0) { significand >>= 1; ++binary_power; }
+  if (significand > ((UINT64_C(1) << 53) - 1)) {
+    return make_error(Error::Code::Unsupported, offset, "decimal REAL exceeds exact binary64 precision");
+  }
+  const double exact = std::ldexp(static_cast<double>(significand), binary_power);
+  if (!std::isfinite(exact) || exact == 0 ||
+      std::ldexp(exact, -binary_power) != static_cast<double>(significand)) {
+    return make_error(Error::Code::Unsupported, offset, "decimal REAL exceeds exact binary64 range");
+  }
+  v = !text.empty() && text[0] == '-' ? -exact : exact;
   return v;
 }
 
@@ -894,8 +975,9 @@ void encode_real_content(ByteWriter& out, double value) {
     out.put(value > 0.0 ? 0x40u : 0x41u);
     return;
   }
-  // Canonical zero (including -0.0) is empty content.
+  // X.690 8.5.3/8.5.9 distinguish zero from minus-zero (special 0x43).
   if (value == 0.0) {
+    if (std::signbit(value)) out.put(0x43u);
     return;
   }
 
@@ -944,6 +1026,9 @@ void encode_real_content(ByteWriter& out, double value) {
  *  Returns     : Result<double>
  */
 Result<double> decode_real_content(ByteReader& in, std::size_t length) {
+  if (length > kMaxCodecBytes) {
+    return make_error(Error::Code::LengthOverflow, in.offset(), "REAL content exceeds codec limit");
+  }
   if (length == 0) {
     return 0.0;
   }

@@ -439,6 +439,15 @@ Result<double> decode_real(const Value& v) {
     if (v.number_is_real) {
       return v.real;
     }
+    if (v.number_is_bigint) {
+      return make_error(Error::Code::Unsupported, 0, "JER REAL integer outside binary64 integer profile");
+    }
+    auto magnitude = v.number < 0 ? static_cast<std::uint64_t>(-(v.number + 1)) + 1
+                                  : static_cast<std::uint64_t>(v.number);
+    while (magnitude && (magnitude & 1u) == 0) magnitude >>= 1;
+    if (magnitude >= (UINT64_C(1) << 53)) {
+      return make_error(Error::Code::Unsupported, 0, "JER REAL integer requires rounding in binary64");
+    }
     return static_cast<double>(v.number);
   }
   if (v.kind == ValueKind::String) {

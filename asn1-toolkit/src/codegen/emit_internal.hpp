@@ -236,6 +236,9 @@ class Emitter {
      */
     std::string named_ref(const ir::Type& t) const;
 
+    void emit_native_integer_guard(std::ostream& out, const ir::IntegerDesc& desc,
+                                   const std::string& value, const std::string& ind) const;
+
     /**
      *  Function    : collect_module_groups
      *  Description : Split mode: groups the named types by ASN.1 module,

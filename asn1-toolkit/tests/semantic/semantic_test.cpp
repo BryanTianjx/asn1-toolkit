@@ -92,6 +92,102 @@ const asn1::ir::Type* find_named(const asn1::ir::Model& model, const std::string
 
 }  // namespace
 
+TEST(Semantic, UnsupportedConstraintsMustNotBecomeUnconstrained) {
+  for (const std::string declaration : {
+      "A ::= INTEGER (unknown..10)",
+      "A ::= INTEGER (WITH COMPONENTS { x (1..2) })",
+      "A ::= SEQUENCE { x INTEGER } (WITH COMPONENTS { x PRESENT })",
+      "Base ::= INTEGER (0..255) A ::= Base (0..7)",
+      "A ::= BOOLEAN (TRUE)"}) {
+    auto r = analyze_string("M DEFINITIONS ::= BEGIN " + declaration + " END");
+    EXPECT_FALSE(r.diag.ok()) << declaration;
+    bool unsupported = false;
+    for (const auto& d : r.diag.items()) unsupported |= d.message.find("Unsupported constraint") != std::string::npos;
+    EXPECT_TRUE(unsupported) << declaration;
+  }
+}
+
+TEST(Semantic, NegativeSizeCannotBecomeAHugeUnsignedBound) {
+  auto r = analyze_string("M DEFINITIONS ::= BEGIN A ::= OCTET STRING (SIZE(-1..4)) END");
+  EXPECT_FALSE(r.diag.ok());
+}
+
+TEST(Semantic, ImportedAndAliasedConstraintBoundsKeepTheirModule) {
+  asn1::Diagnostics diag;
+  auto file = asn1::SourceFile::from_string("bounds.asn", R"(
+A DEFINITIONS ::= BEGIN EXPORTS limit; base INTEGER ::= 7 limit INTEGER ::= base END
+B DEFINITIONS ::= BEGIN IMPORTS limit FROM A; Value ::= INTEGER (0..limit) END
+C DEFINITIONS ::= BEGIN limit INTEGER ::= 99 END
+)");
+  asn1::Lexer lexer(file, diag);
+  asn1::Parser parser(lexer, diag);
+  auto modules = parser.parse_modules();
+  asn1::Analyzer analyzer(diag);
+  auto model = analyzer.analyze(std::move(modules));
+  ASSERT_TRUE(diag.ok());
+  auto* type = find_named(model, "Value");
+  ASSERT_NE(type, nullptr);
+  ASSERT_TRUE(type->integer.constraint.upper);
+  EXPECT_EQ(type->integer.constraint.upper->to_string(), "7");
+}
+
+TEST(Semantic, CyclicConstraintValuesAreRejected) {
+  auto r = analyze_string("M DEFINITIONS ::= BEGIN a INTEGER ::= b b INTEGER ::= a A ::= INTEGER (0..a) END");
+  EXPECT_FALSE(r.diag.ok());
+}
+
+TEST(Semantic, UnimportedBoundsDoNotBindUnrelatedModules) {
+  asn1::Diagnostics diag;
+  auto file = asn1::SourceFile::from_string("bounds.asn",
+      "A DEFINITIONS ::= BEGIN limit INTEGER ::= 7 END "
+      "B DEFINITIONS ::= BEGIN Value ::= INTEGER (0..limit) END");
+  asn1::Lexer lexer(file, diag);
+  asn1::Parser parser(lexer, diag);
+  asn1::Analyzer analyzer(diag);
+  (void)analyzer.analyze(parser.parse_modules());
+  EXPECT_FALSE(diag.ok());
+}
+
+TEST(Semantic, ValueParametersPreserveBoundsAndDistinctInstances) {
+  auto r = analyze_string(R"(
+M DEFINITIONS ::= BEGIN
+  Box {INTEGER : limit} ::= OCTET STRING (SIZE(0..limit))
+  Wrap {INTEGER : n} ::= Box {n}
+  A ::= Box {3} B ::= Box {7} C ::= Wrap {5} D ::= Wrap {9}
+END
+)");
+  ASSERT_TRUE(r.diag.ok());
+  for (const auto pair : {std::pair<const char*, const char*>{"A", "3"}, {"B", "7"}, {"C", "5"}, {"D", "9"}}) {
+    const auto* type = find_named(r.model, pair.first);
+    ASSERT_NE(type, nullptr);
+    ASSERT_TRUE(type->octet_string.size.upper);
+    EXPECT_EQ(type->octet_string.size.upper->to_string(), pair.second);
+  }
+}
+
+TEST(Semantic, NestedValueParametersKeepCallerModule) {
+  asn1::Diagnostics diag;
+  auto file = asn1::SourceFile::from_string("parameters.asn", R"(
+T DEFINITIONS ::= BEGIN EXPORTS Wrap;
+  Box {INTEGER : n} ::= OCTET STRING (SIZE(0..n))
+  Wrap {INTEGER : n} ::= Box {n}
+END
+U DEFINITIONS ::= BEGIN IMPORTS Wrap FROM T; limit INTEGER ::= 3 Alpha ::= Wrap {limit} END
+V DEFINITIONS ::= BEGIN IMPORTS Wrap FROM T; limit INTEGER ::= 7 Beta ::= Wrap {limit} END
+)");
+  asn1::Lexer lexer(file, diag);
+  asn1::Parser parser(lexer, diag);
+  asn1::Analyzer analyzer(diag);
+  auto model = analyzer.analyze(parser.parse_modules());
+  ASSERT_TRUE(diag.ok());
+  const auto* alpha = find_named(model, "Alpha");
+  const auto* beta = find_named(model, "Beta");
+  ASSERT_NE(alpha, nullptr); ASSERT_NE(beta, nullptr);
+  ASSERT_TRUE(alpha->octet_string.size.upper); ASSERT_TRUE(beta->octet_string.size.upper);
+  EXPECT_EQ(alpha->octet_string.size.upper->to_string(), "3");
+  EXPECT_EQ(beta->octet_string.size.upper->to_string(), "7");
+}
+
 TEST(Semantic, PersonAutomaticTagsAndHostBits) {
   auto r = analyze_string(R"(
 MyModule DEFINITIONS AUTOMATIC TAGS ::=
@@ -306,12 +402,6 @@ BEGIN
                 base (2),
                 exponent (-1074..971)
             })
-  D ::= REAL (WITH COMPONENTS {
-                mantissa (-1..1),
-                base (10),
-                exponent (-1..1)
-            })
-  E ::= REAL (WITH COMPONENTS { mantissa (1..2) })
 END
 )");
   ASSERT_TRUE(r.diag.ok()) << asn1::ir::to_string(r.model);
@@ -319,18 +409,17 @@ END
   const asn1::ir::Type* a = find_named(r.model, "A");
   const asn1::ir::Type* b = find_named(r.model, "B");
   const asn1::ir::Type* c = find_named(r.model, "C");
-  const asn1::ir::Type* d = find_named(r.model, "D");
-  const asn1::ir::Type* e = find_named(r.model, "E");
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
   ASSERT_NE(c, nullptr);
-  ASSERT_NE(d, nullptr);
-  ASSERT_NE(e, nullptr);
   EXPECT_EQ(a->real.ieee_form, asn1::ir::RealIeeeForm::Unconstrained);
   EXPECT_EQ(b->real.ieee_form, asn1::ir::RealIeeeForm::Binary32);
   EXPECT_EQ(c->real.ieee_form, asn1::ir::RealIeeeForm::Binary64);
-  EXPECT_EQ(d->real.ieee_form, asn1::ir::RealIeeeForm::Unconstrained);
-  EXPECT_EQ(e->real.ieee_form, asn1::ir::RealIeeeForm::Unconstrained);
+}
+
+TEST(Semantic, UnsupportedRealConstraintIsAnError) {
+  auto r = analyze_string("M DEFINITIONS ::= BEGIN A ::= REAL (WITH COMPONENTS { base (10) }) END");
+  EXPECT_FALSE(r.diag.ok());
 }
 
 TEST(Semantic, Phase12AdvancedTypes) {

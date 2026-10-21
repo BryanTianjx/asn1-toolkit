@@ -207,6 +207,14 @@ SET/SET OF，X.690 11.6 要求排序，asn1c 的 `der_encode` 胜出并写回向
    [asn1-remediation/SKILL.md](skills/asn1-remediation/SKILL.md)，同步已验证的
    操作约束、回归选择和文档入口；任务状态及测试数量仍留在对应权威文档中。
 
+## 标准语义与独立验证
+
+标准语义修正同时维护 [能力矩阵](standard-capabilities.md) 和
+[数值/字符 profile](real-and-string-profile.md)。新增独立对验命令及有限 fuzz 范围见
+[第五批验收](rev20-24-validation.md)：`StandardOracle.FrozenReplay`、
+`StandardCapabilities.Probes` 和 `DecoderFuzz.SeedRegression` 在普通 CTest 执行，
+外部工具只用于显式 live 对验/刷新，libFuzzer 由可选 `ASN1_BUILD_FUZZERS` 构建。
+
 ## 分支与提交
 
 - 开发分支：`asn1-toolkit-phase-39-validation`（CI 在 `main`/`master` 及该

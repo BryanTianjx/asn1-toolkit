@@ -754,6 +754,9 @@ Result<void> encode_real(ByteWriter& out, double value, RealIeeeForm form) {
     if (std::isfinite(value) && !std::isfinite(f)) {
       return bad(0, "REAL value overflows IEEE 754 binary32");
     }
+    if (std::isfinite(value) && static_cast<double>(f) != value) {
+      return make_error(Error::Code::Unsupported, out.size(), "REAL requires rounding in IEEE 754 binary32");
+    }
     std::uint32_t bits = 0;
     std::memcpy(&bits, &f, sizeof(bits));
     write_be32(out, bits);

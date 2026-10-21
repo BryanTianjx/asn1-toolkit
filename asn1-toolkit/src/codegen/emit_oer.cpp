@@ -661,8 +661,9 @@ void Emitter::emit_oer_decode_body(std::ostream& out, const ir::Type& t, const s
         } else {
           out << ind << "  auto tmp = " << oer_ns() << "::decode_integer(r, "
               << oer_integer_constraint_expr(rt.integer) << ");\n"
-              << ind << "  if (!tmp) return tmp.error();\n"
-              << ind << "  " << expr << " = static_cast<" << integer_host_type(rt.integer)
+              << ind << "  if (!tmp) return tmp.error();\n";
+          emit_native_integer_guard(out, rt.integer, "tmp.value()", ind + "  ");
+          out << ind << "  " << expr << " = static_cast<" << integer_host_type(rt.integer)
               << ">(tmp.value());\n";
         }
         out << ind << "}\n";

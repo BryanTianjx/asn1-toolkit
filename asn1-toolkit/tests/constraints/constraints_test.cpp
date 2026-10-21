@@ -143,8 +143,8 @@ END
       dynamic_cast<const asn1::ast::TypeAssignment*>(mod->assignments().front().get());
   auto c = asn1::constraints::normalize(ta->type().constraint(), diag);
   EXPECT_TRUE(c.empty);
-  // Empty intersection is a warning, not a hard error.
-  EXPECT_TRUE(diag.ok());
+  // The emitter cannot represent an empty subtype; it must not become unconstrained.
+  EXPECT_FALSE(diag.ok());
   bool saw = false;
   for (const auto& d : diag.items()) {
     if (d.message.find("empty") != std::string::npos) {

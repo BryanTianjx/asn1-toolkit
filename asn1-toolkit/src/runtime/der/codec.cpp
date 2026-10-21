@@ -574,7 +574,44 @@ void encode_real(ByteWriter& out, double value, ber::Tag tag) {
 Result<double> decode_real(ByteReader& in, ber::Tag expected) {
   ber::Tag want = expected;
   want.constructed = false;
-  return decode_primitive<double>(in, want, ber::decode_real_content);
+  return decode_primitive<double>(in, want,
+      [](ByteReader& r, std::size_t length) -> Result<double> {
+        const auto raw = r.remaining_span().subspan(0, length);
+        const auto offset = r.offset();
+        auto decoded = ber::decode_real_content(r, length);
+        if (!decoded) return decoded.error();
+        if (raw.empty()) return decoded;
+        if ((raw[0] & 0x80u) != 0) {
+          ByteWriter canonical;
+          ber::encode_real_content(canonical, decoded.value());
+          if (canonical.buffer().size() != raw.size() ||
+              !std::equal(raw.begin(), raw.end(), canonical.buffer().begin())) {
+            return make_error(Error::Code::NonCanonical, offset, "non-canonical binary REAL");
+          }
+        } else if (raw[0] < 0x40u) {
+          // X.690 11.3.2: decimal NR3, nonzero first/last mantissa
+          // digits, decimal point immediately before E, minimal exponent.
+          std::size_t i = 1;
+          if (i < raw.size() && raw[i] == '-') ++i;
+          const auto start = i;
+          while (i < raw.size() && raw[i] >= '0' && raw[i] <= '9') ++i;
+          bool valid = raw[0] == 3 && i > start && raw[start] != '0' &&
+                       raw[i - 1] != '0' && i + 2 < raw.size() &&
+                       raw[i] == '.' && raw[i + 1] == 'E';
+          i += 2;
+          if (valid) {
+            if (raw[i] == '+') {
+              valid = i + 2 == raw.size() && raw[i + 1] == '0';
+            } else {
+              if (raw[i] == '-') ++i;
+              valid = i < raw.size() && raw[i] >= '1' && raw[i] <= '9';
+              for (; i < raw.size(); ++i) valid = valid && raw[i] >= '0' && raw[i] <= '9';
+            }
+          }
+          if (!valid) return make_error(Error::Code::NonCanonical, offset, "non-canonical decimal REAL");
+        }
+        return decoded;
+      });
 }
 
 /**

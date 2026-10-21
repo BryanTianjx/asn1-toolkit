@@ -26,6 +26,9 @@ description: 执行 asn1-toolkit 的 REV 修正任务，并同步代码、验证
   [REV-10..12](../../rev10-12-validation.md)。
 - 缓存、并发、codec 组合与构建：[REV-13..19](../../rev13-19-validation.md)、
   [产品入口登记](../../codec-entries.md)、[安装与交叉构建](../../build-and-package.md)。
+- 标准语义与独立对验：[能力矩阵](../../standard-capabilities.md)、
+  [REAL/字符/时间 profile](../../real-and-string-profile.md)、
+  [REV-20..24](../../rev20-24-validation.md)。
 
 ## 必须保留的设计
 
@@ -68,6 +71,38 @@ PER 改动同时验证两种 Variant，覆盖非零起始位、整数符号/补�
 - codec 改动核查 CLI、位掩码、include、runtime 依赖与函数名；比较单入口和组合
   的实际编码结果。用 CodecEntry 测试覆盖真实链接/调用，保留三种产物验证。
 
+### 标准语义与独立验证
+
+先按能力矩阵区分 parse、语义/IR、生成、runtime 和外部互操作，C/C++ 分开。
+基线版本、勘误是否核对、未实现指令均明确登记；不要由类型枚举或一个往返推定全标准支持。
+
+约束不能保真进入 IR 时应诊断并阻止生成，不能只 warning 后当 unconstrained。
+静态常量解析沿本模块 import 和值别名查找，检测循环；禁止从无关模块挑选同名值。
+参数化值约束必须替换实参并保留调用模块来源，实例键区分值；不能只用 V0/V1
+位置标签缓存不同范围。用至少两个实例的实际 PER 位宽和跨模块嵌套用例回归。
+生成的 native INTEGER 在 cast 前检查宿主范围与非扩展根区间成员，跨二进制/XML/JSON
+家族复用同一生成检查；不要将超界值截断为有效字段。BigInteger 的完整约束验证另行核查。
+检查负 SIZE、空集合及引用类型新增约束；FROM、COMPONENTS OF、数字版本组等当前
+Unsupported 的结构，只有在补语义和线路证据后才开放探针，不能直接改预期让门禁通过。
+
+规范策略采用成对测试：基础规则的合法替代在 BER/OER 可接受，规范规则应拒绝对应非法表示。
+结构级 DEFAULT/重复成员/顺序检查不能由原语策略替代；CER 片段检查计入 unused-bits
+内容字节，验证非末尾片长、嵌套 EOC、最短头、递归和累计内容上限。
+
+REAL 改动遵守已公开 profile。binary64 容量不等于 ASN.1 REAL 完整值域；
+验证 mantissa 有效精度、范围、次正规和负零，禁止静默窄化或读取 JER bigint 的缓存整数。
+XML/JSON 文本仍是 host-double 语义，精确十进制模型另立设计，不误称当前已实现。
+
+新增外部向量保存工具版本/commit、schema hash、值、参数和字节。
+工具副本没有独立 Git commit 时记为未知并记录包源码 hash，不能引用父工作区 commit 冒充。
+使用 `scripts/validate_standard_oracles.py` 复跑 live 或冻结向量；只有显式刷新才写期望值。
+XML 树/JSON 值比较与规范字节比较分开，CXER 空元素拼写等标准化转换必须记录，
+不能将 XER/OER oracle 冒充独立 CXER/COER 规范编码器。
+
+使用 `DecoderFuzz.SeedRegression` 重放截断/变异；新发现的 crash 应最小化并固定为回归。
+可选 Clang `ASN1_BUILD_FUZZERS=ON` 配合 ASan+UBSan 做有限探索，记录 seed、次数、
+输入上限及实际覆盖入口；无崩溃不等于安全性证明。
+
 ### 构建与验收口径
 
 编译选项限定到 target 和适用编译器；C 目标声明 C11/REQUIRED/EXTENSIONS OFF。
@@ -94,7 +129,7 @@ Release 与 ASan+UBSan 全量门禁，以及 7 fixture ×12 实际入口语法�
 历史验收和分析快照保留原数字；只同步当前状态数字。
 
 每批完成时检查本 skill：把已验证且可复用的流程变化同步到对应段落，详细证据
-链接到验收文档，不复制整个任务清单。后续 REV-20..28 的待办不能提前写成已实现能力，
+链接到验收文档，不复制整个任务清单。后续 REV-25..28 及能力矩阵中的延期项不能写成已实现能力，
 尤其不能把 C11 原语与 smoke 通过表述为 Phase49 C emitter 已完成。
 
 该文件是仓库内的 skill 源文件；置于 docs 不代表已安装到 Codex 的技能发现目录。

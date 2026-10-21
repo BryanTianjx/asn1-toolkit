@@ -146,6 +146,39 @@ std::string named_type_cpp(const ir::Type& t) { return cpp_ident(t.name); }
  */
 bool integer_is_bigint(const ir::IntegerDesc& d) { return !d.host_bits.has_value(); }
 
+void Emitter::emit_native_integer_guard(std::ostream& out, const ir::IntegerDesc& desc,
+                                        const std::string& value, const std::string& ind) const {
+  const auto host = integer_host_type(desc);
+  out << ind << "if (";
+  if (desc.is_signed) {
+    out << value << " < std::numeric_limits<" << host << ">::min() || "
+        << value << " > std::numeric_limits<" << host << ">::max()";
+  } else {
+    out << value << " < 0 || static_cast<std::uint64_t>(" << value
+        << ") > std::numeric_limits<" << host << ">::max()";
+  }
+  out << ") return asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"INTEGER exceeds host range\");\n";
+  if (desc.constraint.extensible) return;
+  if (desc.constraint.empty) {
+    out << ind << "return asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"empty INTEGER subtype\");\n";
+    return;
+  }
+  if (desc.constraint.root_ranges.empty()) return;
+  std::ostringstream membership;
+  for (std::size_t i = 0; i < desc.constraint.root_ranges.size(); ++i) {
+    const auto& range = desc.constraint.root_ranges[i];
+    if ((range.lower && !range.lower->as_i64) || (range.upper && !range.upper->as_i64)) return;
+    if (i) membership << " || ";
+    membership << "(";
+    if (range.lower) membership << value << " >= " << host_integer_literal(*range.lower->as_i64);
+    else membership << "true";
+    if (range.upper) membership << " && " << value << " <= " << host_integer_literal(*range.upper->as_i64);
+    membership << ")";
+  }
+  out << ind << "if (!(" << membership.str()
+      << ")) return asn1::make_error(asn1::Error::Code::ConstraintViolation, 0, \"INTEGER outside subtype\");\n";
+}
+
 
 /**
  *  Function    : integer_host_type

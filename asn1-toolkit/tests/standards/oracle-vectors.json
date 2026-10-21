@@ -1,0 +1,27 @@
+{
+  "oracle": "asn1tools",
+  "version": "0.166.0",
+  "commit": null,
+  "source_sha256": "1bfc8087bedfc4071d2e0cc7452a5bab792bec25683d91febd5a4513f64b8180",
+  "schema": "tests/fixtures/standards.asn",
+  "sha256": "ab3bac958211fe5aca224383edb7023e0f11e6bc06b75e69d87405f5e85c1927",
+  "schema_hash_normalization": "UTF-8 LF",
+  "type": "Record",
+  "value": {
+    "count": 42,
+    "enabled": true,
+    "text": "ASN1"
+  },
+  "parameters": {
+    "check_constraints": true
+  },
+  "vectors": {
+    "ber": "300c80012a8101ff820441534e31",
+    "der": "300c80012a8101ff820441534e31",
+    "uper": "2a8220a9a71880",
+    "aper": "2a800441534e31",
+    "oer": "2aff0441534e31",
+    "xer": "3c5265636f72643e3c636f756e743e34323c2f636f756e743e3c656e61626c65643e3c74727565202f3e3c2f656e61626c65643e3c746578743e41534e313c2f746578743e3c2f5265636f72643e",
+    "jer": "7b22636f756e74223a34322c22656e61626c6564223a747275652c2274657874223a2241534e31227d"
+  }
+}

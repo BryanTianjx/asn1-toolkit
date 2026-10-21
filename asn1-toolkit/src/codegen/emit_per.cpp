@@ -810,8 +810,9 @@ void Emitter::emit_decode_body(std::ostream& out, const ir::Type& t, const std::
         } else {
           out << ind << "  auto tmp = " << C << "::decode_integer(r, "
               << integer_constraint_expr(t.integer) << ");\n"
-              << ind << "  if (!tmp) return tmp.error();\n"
-              << ind << "  " << expr << " = static_cast<" << integer_host_type(t.integer)
+              << ind << "  if (!tmp) return tmp.error();\n";
+          emit_native_integer_guard(out, t.integer, "tmp.value()", ind + "  ");
+          out << ind << "  " << expr << " = static_cast<" << integer_host_type(t.integer)
               << ">(tmp.value());\n";
         }
         out << ind << "}\n";

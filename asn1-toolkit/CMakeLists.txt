@@ -183,7 +183,7 @@ target_include_directories(asn1_cer PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_link_libraries(asn1_cer PUBLIC asn1::ber)
+target_link_libraries(asn1_cer PUBLIC asn1::der)
 
 add_library(asn1_per STATIC
   src/runtime/per/primitives.cpp

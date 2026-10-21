@@ -22,6 +22,8 @@
 **                 asn1-toolkit/README.md
 **************************************************************************/
 #include <asn1/runtime/cer/codec.hpp>
+#include <asn1/runtime/der/codec.hpp>
+#include <asn1/runtime/limits.hpp>
 
 #include <algorithm>
 #include <utility>
@@ -58,75 +60,54 @@ bool at_end_of_contents(ByteReader& in) {
   return p0 && p1 && p0.value() == 0x00 && p1.value() == 0x00;
 }
 
-/// Copy one complete TLV (raw bytes, any length form, nested indefinite
-/// included) from `in` into `out`. The BER indefinite reader refuses nested
-/// indefinite lengths; CER nests them everywhere, so CER needs its own.
-Result<void> copy_one_tlv(ByteReader& in, ByteWriter& out) {
-  auto b0 = in.peek(0);
-  if (!b0) {
-    return make_error(Error::Code::InvalidArgument, in.offset(), "truncated TLV");
+// Validate the common CER identifier/length policy before content decoding.
+Result<ber::TlvHeader> decode_header(ByteReader& in) {
+  const auto raw = in.remaining_span();
+  auto h = ber::decode_tlv_header(in);
+  if (!h) return h.error();
+  if (h.value().tag.constructed != h.value().length.indefinite) {
+    return make_error(Error::Code::NonCanonical, in.offset(),
+                      "CER requires indefinite constructed and definite primitive lengths");
   }
-  std::size_t hdr = 1;
-  if ((b0.value() & 0x1F) == 0x1F) {  // high-tag-number form
-    for (;;) {
-      auto b = in.peek(hdr);
-      if (!b) {
-        return make_error(Error::Code::InvalidArgument, in.offset(), "truncated tag octets");
-      }
-      ++hdr;
-      if ((b.value() & 0x80) == 0) {
-        break;
-      }
+  ByteWriter minimal;
+  ber::encode_tag(minimal, h.value().tag);
+  if (h.value().length.indefinite) minimal.put(0x80);
+  else ber::encode_length(minimal, h.value().length.value);
+  if (raw.size() < minimal.buffer().size() ||
+      !std::equal(minimal.buffer().begin(), minimal.buffer().end(), raw.begin())) {
+    return make_error(Error::Code::NonCanonical, in.offset(), "nonminimal CER identifier/length");
+  }
+  return h;
+}
+
+// Preserve complete nested TLVs with bounded recursion and bounded accumulation.
+Result<void> copy_one_tlv(ByteReader& in, ByteWriter& out, unsigned depth = 0) {
+  if (depth >= 64) return make_error(Error::Code::Unsupported, in.offset(), "CER nesting limit exceeded");
+  const auto raw = in.remaining_span();
+  const auto start = in.offset();
+  auto h = decode_header(in);
+  if (!h) return h.error();
+  const auto header_size = in.offset() - start;
+  if (out.buffer().size() > kMaxCodecBytes - header_size)
+    return make_error(Error::Code::LengthOverflow, in.offset(), "CER content limit exceeded");
+  out.write(raw.subspan(0, header_size));
+  if (h.value().length.indefinite) {
+    while (!at_end_of_contents(in)) {
+      auto result = copy_one_tlv(in, out, depth + 1);
+      if (!result) return result.error();
     }
-  }
-  auto lb = in.peek(hdr);
-  if (!lb) {
-    return make_error(Error::Code::InvalidArgument, in.offset(), "truncated length octets");
-  }
-  ++hdr;
-  const bool indefinite = lb.value() == 0x80;
-  std::size_t content = 0;
-  if (indefinite) {
-    // content length determined by the end-of-contents marker below
-  } else if (lb.value() > 0x7F) {  // long form
-    const std::size_t n = lb.value() & 0x7F;
-    for (std::size_t i = 0; i < n; ++i) {
-      auto b = in.peek(hdr + i);
-      if (!b) {
-        return make_error(Error::Code::InvalidArgument, in.offset(), "truncated length octets");
-      }
-      content = (content << 8) | b.value();
-    }
-    hdr += n;
+    if (out.buffer().size() > kMaxCodecBytes - 2)
+      return make_error(Error::Code::LengthOverflow, in.offset(), "CER content limit exceeded");
+    auto eoc = in.read(2);
+    if (!eoc) return eoc.error();
+    out.write(eoc.value());
   } else {
-    content = lb.value();  // short form: the length IS the contents octets
+    if (h.value().length.value > kMaxCodecBytes - out.buffer().size())
+      return make_error(Error::Code::LengthOverflow, in.offset(), "CER content limit exceeded");
+    auto content = in.read(h.value().length.value);
+    if (!content) return content.error();
+    out.write(content.value());
   }
-  auto hb = in.read(hdr);
-  if (!hb) {
-    return hb.error();
-  }
-  out.write(hb.value());
-  if (indefinite) {
-    for (;;) {
-      if (at_end_of_contents(in)) {
-        auto eoc = in.read(2);
-        if (!eoc) {
-          return eoc.error();
-        }
-        out.write(eoc.value());
-        break;
-      }
-      if (auto r = copy_one_tlv(in, out); !r) {
-        return r.error();
-      }
-    }
-    return Result<void>::success();
-  }
-  auto cb = in.read(content);
-  if (!cb) {
-    return cb.error();
-  }
-  out.write(cb.value());
   return Result<void>::success();
 }
 
@@ -187,7 +168,7 @@ Result<std::vector<std::uint8_t>> read_string_fragments(ByteReader& in, ber::Tag
       }
       break;
     }
-    auto fh = ber::decode_tlv_header(in);
+    auto fh = decode_header(in);
     if (!fh) {
       return fh.error();
     }
@@ -210,6 +191,11 @@ Result<std::vector<std::uint8_t>> read_string_fragments(ByteReader& in, ber::Tag
     if (!part) {
       return part.error();
     }
+    const bool final = at_end_of_contents(in);
+    if (part.value().empty() || (!final && part.value().size() != kFragmentContents))
+      return make_error(Error::Code::NonCanonical, in.offset(), "invalid CER fragment size");
+    if (part.value().size() > kMaxCodecBytes - out.size())
+      return make_error(Error::Code::LengthOverflow, in.offset(), "CER string limit exceeded");
     out.insert(out.end(), part.value().begin(), part.value().end());
   }
   return out;
@@ -224,7 +210,7 @@ void encode_boolean(ByteWriter& out, bool value, ber::Tag tag) {
 }
 
 Result<bool> decode_boolean(ByteReader& in, ber::Tag expected) {
-  return ber::decode_boolean(in, expected);
+  return der::decode_boolean(in, expected);
 }
 
 void encode_integer(ByteWriter& out, std::int64_t value, ber::Tag tag) {
@@ -236,17 +222,17 @@ void encode_integer(ByteWriter& out, const BigInteger& value, ber::Tag tag) {
 }
 
 Result<std::int64_t> decode_integer(ByteReader& in, ber::Tag expected) {
-  return ber::decode_integer(in, expected);
+  return der::decode_integer(in, expected);
 }
 
 Result<BigInteger> decode_big_integer(ByteReader& in, ber::Tag expected) {
-  return ber::decode_big_integer(in, expected);
+  return der::decode_big_integer(in, expected);
 }
 
 void encode_null(ByteWriter& out, ber::Tag tag) { ber::encode_null(out, tag); }
 
 Result<void> decode_null(ByteReader& in, ber::Tag expected) {
-  return ber::decode_null(in, expected);
+  return der::decode_null(in, expected);
 }
 
 void encode_enumerated(ByteWriter& out, std::int64_t value, ber::Tag tag) {
@@ -254,7 +240,7 @@ void encode_enumerated(ByteWriter& out, std::int64_t value, ber::Tag tag) {
 }
 
 Result<std::int64_t> decode_enumerated(ByteReader& in, ber::Tag expected) {
-  return ber::decode_enumerated(in, expected);
+  return der::decode_enumerated(in, expected);
 }
 
 void encode_object_identifier(ByteWriter& out, Span<const std::uint64_t> arcs, ber::Tag tag) {
@@ -262,7 +248,7 @@ void encode_object_identifier(ByteWriter& out, Span<const std::uint64_t> arcs, b
 }
 
 Result<std::vector<std::uint64_t>> decode_object_identifier(ByteReader& in, ber::Tag expected) {
-  return ber::decode_object_identifier(in, expected);
+  return der::decode_object_identifier(in, expected);
 }
 
 void encode_relative_oid(ByteWriter& out, Span<const std::uint64_t> arcs, ber::Tag tag) {
@@ -270,7 +256,7 @@ void encode_relative_oid(ByteWriter& out, Span<const std::uint64_t> arcs, ber::T
 }
 
 Result<std::vector<std::uint64_t>> decode_relative_oid(ByteReader& in, ber::Tag expected) {
-  return ber::decode_relative_oid(in, expected);
+  return der::decode_relative_oid(in, expected);
 }
 
 void encode_real(ByteWriter& out, double value, ber::Tag tag) {
@@ -278,7 +264,7 @@ void encode_real(ByteWriter& out, double value, ber::Tag tag) {
 }
 
 Result<double> decode_real(ByteReader& in, ber::Tag expected) {
-  return ber::decode_real(in, expected);
+  return der::decode_real(in, expected);
 }
 
 // ---- Strings (X.690 9.2) ----
@@ -303,7 +289,7 @@ void encode_octet_string(ByteWriter& out, Span<const std::uint8_t> value, ber::T
 }
 
 Result<std::vector<std::uint8_t>> decode_octet_string(ByteReader& in, ber::Tag expected) {
-  auto hdr = ber::decode_tlv_header(in);
+  auto hdr = decode_header(in);
   if (!hdr) {
     return hdr.error();
   }
@@ -365,7 +351,7 @@ void encode_bit_string(ByteWriter& out, Span<const std::uint8_t> bits, std::uint
 }
 
 Result<ber::BitStringValue> decode_bit_string(ByteReader& in, ber::Tag expected) {
-  auto hdr = ber::decode_tlv_header(in);
+  auto hdr = decode_header(in);
   if (!hdr) {
     return hdr.error();
   }
@@ -381,7 +367,12 @@ Result<ber::BitStringValue> decode_bit_string(ByteReader& in, ber::Tag expected)
       return make_error(Error::Code::NonCanonical, in.offset(),
                         "CER bit strings over 1000 contents octets shall be constructed");
     }
-    return ber::decode_bit_string_content(in, hdr.value().length.value);
+    auto value = ber::decode_bit_string_content(in, hdr.value().length.value);
+    if (!value) return value.error();
+    const auto unused = value.value().bits.size() * 8 - value.value().bit_length;
+    if (unused && (value.value().bits.back() & ((1u << unused) - 1u)))
+      return make_error(Error::Code::NonCanonical, in.offset(), "CER unused bits must be zero");
+    return value;
   }
   if (auto r = require_indefinite(in, hdr.value()); !r) {
     return r.error();
@@ -398,7 +389,7 @@ Result<ber::BitStringValue> decode_bit_string(ByteReader& in, ber::Tag expected)
       }
       break;
     }
-    auto fh = ber::decode_tlv_header(in);
+    auto fh = decode_header(in);
     if (!fh) {
       return fh.error();
     }
@@ -417,6 +408,13 @@ Result<ber::BitStringValue> decode_bit_string(ByteReader& in, ber::Tag expected)
     if (!seg) {
       return seg.error();
     }
+    const auto unused = seg.value().bits.size() * 8 - seg.value().bit_length;
+    if ((unused && (seg.value().bits.back() & ((1u << unused) - 1u))) ||
+        (!at_end_of_contents(in) && (unused != 0 || fh.value().length.value != kFragmentContents)) ||
+        seg.value().bits.empty())
+      return make_error(Error::Code::NonCanonical, in.offset(), "invalid CER BIT STRING fragment");
+    if (seg.value().bits.size() > kMaxCodecBytes - bits.size())
+      return make_error(Error::Code::LengthOverflow, in.offset(), "CER BIT STRING limit exceeded");
     bits.insert(bits.end(), seg.value().bits.begin(), seg.value().bits.end());
     total_bits += seg.value().bit_length;
   }
@@ -450,7 +448,7 @@ void encode_utf8_string(ByteWriter& out, const std::string& value, ber::Tag tag)
 }
 
 Result<std::string> decode_utf8_string(ByteReader& in, ber::Tag expected) {
-  auto hdr = ber::decode_tlv_header(in);
+  auto hdr = decode_header(in);
   if (!hdr) {
     return hdr.error();
   }
@@ -493,7 +491,7 @@ void encode_sequence(ByteWriter& out, Span<const std::uint8_t> components, ber::
 }
 
 Result<std::vector<std::uint8_t>> decode_constructed(ByteReader& in, ber::Tag expected) {
-  auto hdr = ber::decode_tlv_header(in);
+  auto hdr = decode_header(in);
   if (!hdr) {
     return hdr.error();
   }

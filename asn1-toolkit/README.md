@@ -7,7 +7,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 | 项目    | 值                                                                                                                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 当前阶段  | Phase 49 — C 语言代码生成器 P2-4（sub-task 1 `include/asn1/c_runtime/*` 头骨架 + sub-task 2 `src/c_runtime/*.c` 纯 C11 runtime + `Asn1CRuntimeSmoke` 链接+运行门禁；详见 [docs/status.md](docs/status.md)） |
-| 测试状态 | GCC/Clang 的 Release、ASan+UBSan 四轮各 **392/392**；7×12 实际入口语法矩阵 **84/84**，见 [验收记录](docs/rev13-19-validation.md) |
+| 测试状态 | GCC Release、ASan+UBSan 各 **430/430**；7×12 实际入口语法矩阵 **84/84**，Clang sanitizer fuzz 20,000 次、MSVC 针对性 59/59；见 [验收记录](docs/rev20-24-validation.md) |
 | 编码入口  | BER / DER / CER / UPER / APER / OER / COER / XER / CXER / E-XER / JER / JERI                                                                                                          |
 | 语言/构建 | C++17（GCC / Clang；MSVC 本地可用）+ CMake 3.16+                                                                                                                                             |
 | 依赖    | 零第三方运行时依赖（BigInt 自研，无 Boost、无 multiprecision）                                                                                                                                         |
@@ -17,7 +17,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 | 能力         | 说明                                                                                                                         |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 编码入口    | 12 个产品入口（能力边界见 [入口登记](docs/codec-entries.md)）；UPER/APER 共享同一 PER 实现（`Variant::{Unaligned,Aligned}` 参数化，非两份代码）；DER=BER+规范策略、COER=OER+规范策略、CXER=XER+规范策略      |
-| 电信级语法支持    | CLASS / 信息对象类 / 表约束（表约束类型化 IE 开放类型）/ 参数化类型 / 版本括号 `[[...]]` / INSTANCE OF / EXTERNAL / EMBEDDED PDV / REAL / >64 位 INTEGER |
+| 语法与类型子集    | CLASS / 信息对象 / 表约束开放类型 / 参数化 / 无编号 `[[...]]` / INSTANCE OF / EXTERNAL / EMBEDDED PDV / REAL / >64 位 INTEGER；各层证据、Unsupported 与 oracle 空白见 [标准能力登记](docs/standard-capabilities.md) |
 | 多编码规则组合生成  | `--codec uper,ber` 位掩码组合一次生成多套编解码代码                                                                                        |
 | 字节级金标准差分验证 | PER/APER（asn1c oracle，54 向量）、BER/DER/OER（asn1tools + asn1c oracle，16 用例）、CER（X.690 条文推导 + DER 值等价，10 用例）                   |
 | 三种生成产物形态   | 默认 out-of-line（声明在头、定义在 `.cpp`）、`--emit-inline` 全 inline 单头、`--emit-split` 按 ASN.1 模块分文件                                   |
@@ -41,7 +41,7 @@ C++17 ASN.1 编译器与编解码运行时：将 ASN.1 规范（X.680 系列）�
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# 2. 运行全部测试（预期 370/370 通过）
+# 2. 运行全部测试（当前结果见 docs/status.md）
 ctest --test-dir build --output-on-failure
 
 # 3. 解析一个 ASN.1 文件并查看 IR
