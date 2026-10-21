@@ -18,8 +18,9 @@
     Sub-task 1 only checked that every header parses under
     `gcc -std=c11 -fsyntax-only`. Sub-task 2 fills the bodies in
     the C sources in src/c_runtime, so the gate upgrades: link against
-    `asn1::c_runtime`, call every declared function with a sample
-    input, and assert the round-trip. A failure here means a C-runtime
+    `asn1::c_runtime`, call representative legacy functions with a sample
+    input, and check bytes/round-trips. This is not declaration-complete
+    coverage; see docs/c-runtime-test-coverage.md. A failure means a C-runtime
     body returns an unexpected status or produces bytes that don't
     match the expected wire format.
 
@@ -456,6 +457,12 @@ static void test_per_size_encoded(void) {
   size_t n = 0;
   EXPECT(asn1_bit_writer_take(w, &bytes, &n));
   EXPECT_EQ_I(bytes[0], 0x05);
+  asn1_bit_reader_t* r = NULL;
+  EXPECT(asn1_bit_reader_create(&r, asn1_byte_view(bytes, n)));
+  size_t decoded = 0;
+  EXPECT(asn1_per_decode_size(r, &range, &decoded));
+  EXPECT_EQ_I(decoded, 5);
+  asn1_bit_reader_destroy(r);
   free(bytes);
   asn1_bit_writer_destroy(w);
 }
@@ -471,6 +478,12 @@ static void test_per_constrained_size(void) {
   size_t n = 0;
   EXPECT(asn1_bit_writer_take(w, &bytes, &n));
   EXPECT_EQ_I(bytes[0], 0xA0);
+  asn1_bit_reader_t* r = NULL;
+  EXPECT(asn1_bit_reader_create(&r, asn1_byte_view(bytes, n)));
+  size_t decoded = 0;
+  EXPECT(asn1_per_decode_constrained_size(r, &range, &decoded));
+  EXPECT_EQ_I(decoded, 5);
+  asn1_bit_reader_destroy(r);
   free(bytes);
   asn1_bit_writer_destroy(w);
 }
@@ -491,6 +504,15 @@ static void test_per_octetstring_round_trip(void) {
   EXPECT_EQ_I(bytes[1], 0x11);
   EXPECT_EQ_I(bytes[2], 0x22);
   EXPECT_EQ_I(bytes[3], 0x33);
+  asn1_bit_reader_t* r = NULL;
+  EXPECT(asn1_bit_reader_create(&r, asn1_byte_view(bytes, n)));
+  asn1_per_size_range_t unused = {0, 0};
+  size_t length = 0;
+  EXPECT(asn1_per_decode_size(r, &unused, &length));
+  uint8_t* decoded = NULL; size_t count = 0;
+  EXPECT(asn1_per_decode_octetstring(r, length, &decoded, &count));
+  EXPECT_TRUE(count == sizeof(data) && memcmp(decoded, data, count) == 0);
+  free(decoded); asn1_bit_reader_destroy(r);
   free(bytes);
   asn1_bit_writer_destroy(w);
 }
@@ -512,6 +534,13 @@ static void test_per_bitstring_round_trip(void) {
   EXPECT(asn1_bit_writer_take(w, &bytes, &n));
   EXPECT_EQ_I(n, 1);
   EXPECT_EQ_I(bytes[0], 0xA5);
+  asn1_bit_reader_t* r = NULL;
+  EXPECT(asn1_bit_reader_create(&r, asn1_byte_view(bytes, n)));
+  asn1_bitstring_t decoded;
+  asn1_bitstring_init(&decoded);
+  EXPECT(asn1_per_decode_bitstring(r, &range, &decoded));
+  EXPECT_TRUE(decoded.bit_length == 8 && decoded.bits[0] == 0xA5);
+  asn1_bitstring_free(&decoded); asn1_bit_reader_destroy(r);
   free(bytes);
   asn1_bit_writer_destroy(w);
   asn1_bitstring_free(&s);

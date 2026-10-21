@@ -264,6 +264,7 @@ add_library(asn1_c_runtime STATIC
   src/c_runtime/byte_io.c
   src/c_runtime/ber_tlv.c
   src/c_runtime/per.c
+  src/c_runtime/per_core.c
   src/c_runtime/jer.c
   src/c_runtime/xer.c
 )
@@ -284,6 +285,7 @@ set_source_files_properties(
   src/c_runtime/ber_tlv.c
   src/c_runtime/per.c
   src/c_runtime/jer.c
+  src/c_runtime/per_core.c
   src/c_runtime/xer.c
   PROPERTIES COMPILE_OPTIONS "-std=c11;-Wall;-Wextra;-Wno-unused-parameter"
 )

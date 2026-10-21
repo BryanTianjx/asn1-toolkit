@@ -33,7 +33,12 @@ extern "C" {
 #endif
 
 #define ASN1_MAX_RECURSION_DEPTH      256   /* ASN1_MAX_RECURSION_DEPTH */
-#define ASN1_MAX_STRING_BYTES         (64u * 1024u) /* OCTET STRING cap */
+#ifndef ASN1_MAX_STRING_BYTES
+#define ASN1_MAX_STRING_BYTES         (64u * 1024u) /* decoder allocation cap */
+#endif
+#if ASN1_MAX_STRING_BYTES < 1 || ASN1_MAX_STRING_BYTES > (SIZE_MAX / 8u)
+#error "ASN1_MAX_STRING_BYTES must be positive and representable as a bit count"
+#endif
 #define ASN1_MAX_BIGINT_LIMBS         1024   /* INTEGER limb cap (32 bits each) */
 #define ASN1_MAX_CHOICE_ALTS          256    /* CHOICE alternatives cap */
 

@@ -8,6 +8,17 @@
 
 ### 2026-10-20
 
+**REV-04..09 — 第二批 C11 位操作与 PER 线路修正**
+
+- 修复 MSB-first 尾位和 >64 bit 静默截断，新增 signed BigInt 内容转换；
+  完整分片、末尾零、变长/扩展 SIZE、半约束及全 int64 域处理。
+- `per_core.c` 统一 UPER/APER Variant；旧 `per.c` 为 UPER 包装；新 `_ex` 明确
+  描述约束和完整值，旧 known-length raw OCTET STRING decode ABI 保留。
+- 新增纯 C 正确性/128KiB 大值门禁，补 smoke 实际解码和失败路径；独立
+  asn1tools 差分 234 用例、184 冻结向量，对 oracle 能力缺口记录条文仲裁。
+- 实测 Release / ASan+UBSan 各 **348/348**；两个 PER 门禁各 4473 检查，故障
+  门禁 498 检查。详细命令与最终语法矩阵见 [第二批验收记录](rev04-09-validation.md)。
+
 **REV-01..03 — 第一批 C11 内存安全与失败传播修正完成**
 
 - BitWriter 返回并传播扩容失败，整次操作预留容量，检查计数/倍增溢出；

@@ -62,4 +62,36 @@
 逐分配点注入失败、检查状态/输出/存活分配数。生产 `asn1::c_runtime` 不包含
 测试状态或 allocator 配置；测试替换接口不是公共 ABI。
 
-第二批的 PER 补码、分片、变长 BIT STRING 与尾位语义不由此文档宣称已修复。
+## REV-04..09：PER 原语约定
+
+`per_core.c` 是唯一 C PER 核心，使用 `asn1_per_variant_t` 选择 UPER/APER。
+`per.c` 只保留旧 ABI 的 UPER 包装。`_ex` 不是另一套实现。
+
+- INTEGER：有界单区间、仅下界、仅上界、无界、根区间可扩展，以及完整 int64
+  域；超出 int64 的无界值使用 BigInt 接口。无界内容采用最短有符号补码。
+  `bigint_to_bytes` 仍是无符号幅值；新增 `to_twos_complement` 与
+  `init_from_twos_complement` 明确区分表示。构造输出仍须为新/零/已 free 对象。
+- 长度：新描述符区分 unconstrained、constrained、semi-constrained；fixed 是
+  constrained 且 lower==upper；extensible 描述根与根外。SIZE 的一般长度编码
+  使用实际长度，不减去 semi-constrained 下界；有界上界 >=64K 也走一般分片。
+- `encode/decode_length_fragment` 只处理一个 determinant，显式返回/接受 more；
+  调用者必须交错处理片段及数据，整片后仍须最终零 determinant。标量 size
+  helper 不能表示分片内容，遇到一般长度 >=16K 返回 Unsupported，禁止丢失
+  more 信息。完整 octetstring/bitstring/open_type API 负责完整片段链。
+- 旧 `encode_octetstring` 编码完整无界 UPER 值；旧 `decode_octetstring(r,length)`
+  保留“读取已知长度裸 payload”的 ABI。新代码应配对使用 `_ex` 完整值接口；
+  不要把旧 decode 当作能自行消费长度及片段的完整解码器。
+- BIT STRING 的长度单位是位；容量验证使用 ceil(bits/8)，尾位总是从源字节高位
+  开始，scalar `put_bits` 超过 64 bit 返回 InvalidArgument。NamedBitList 的
+  合法尾零裁剪由调用者基于类型信息决定，本原语不猜测。
+- APER 处理整数范围阈值、变长字符串、固定 BIT STRING >16 bit、固定
+  OCTET STRING >2 octet、长度与 open-type 对齐；零长度不添加不存在的内容对齐。
+  内部字段完整编码和 open type 的尾部零填充仍由调用者完成；空内层编码也须
+  提供一个零 octet，不能传入零字节的 open-type 内容。
+- decoder 默认保持 64KiB 字节上限；超过返回 ResourceLimit，不提交输出。
+  整个 C runtime 可一致使用 `-DASN1_MAX_STRING_BYTES=...` 重新编译，配置必须
+  为正且可表示为位数。本次单独的 128KiB 测试目标不改变生产默认值。
+
+尚未支持的字符集原语、normally-small helper、完整生成类型编解码及复杂约束
+不会因这些原语完成而自动获得支持。测试证据和 oracle 能力边界见
+[c-runtime-test-coverage.md](c-runtime-test-coverage.md)。

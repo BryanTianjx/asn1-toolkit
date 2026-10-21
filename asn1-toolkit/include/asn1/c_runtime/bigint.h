@@ -21,9 +21,8 @@
     field (0 for zero, +1 / -1 otherwise), a heap-allocated `limbs`
     array of uint32_t limbs in little-endian order, and a count.
 
-    Sub-task 2 will fill in the bodies; this header locks the surface
-    area down so emit_c / tests can be written against the same
-    signatures.
+    Implemented in src/c_runtime/bigint.c; lifecycle and signed/unsigned
+    serialization contracts are documented below.
 
     Design Spec: asn1-toolkit/docs/todo.md#p2-4--c-语言代码生成器-lang-c
 ***************************************************************************/
@@ -77,6 +76,14 @@ asn1_status_t asn1_bigint_to_int64(const asn1_bigint_t* b,
 asn1_status_t asn1_bigint_to_bytes(const asn1_bigint_t* b,
                                    uint8_t** out_buf,
                                    size_t* out_size);
+
+/* Signed minimal big-endian two's complement (INTEGER content, not TLV).
+   Constructor destination must be new/zero/freed. Empty/redundant signed
+   input is rejected. Outputs are unchanged on failure. */
+asn1_status_t asn1_bigint_to_twos_complement(const asn1_bigint_t* b,
+                                           uint8_t** out_buf, size_t* out_size);
+asn1_status_t asn1_bigint_init_from_twos_complement(asn1_bigint_t* b,
+                                                  asn1_byte_view_t bytes);
 
 /* TODO sub-task 2: asn1_bigint_cmp_i64 / from_i64 / add_i64 / sub_i64 /
    mul_i64 (NEG 7/8.6.4 super-large split + canonical CER compare use

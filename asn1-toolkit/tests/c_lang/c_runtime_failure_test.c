@@ -210,6 +210,17 @@ static void output_contracts(void) {
   CHECK(asn1_jer_reader_init(&jr, NULL, 1) == ASN1_ERR_INVALID_ARGUMENT && jr.pos == 1);
   asn1_xer_reader_t xr = {"old", 1, 3};
   CHECK(asn1_xer_reader_init(&xr, NULL, 1) == ASN1_ERR_INVALID_ARGUMENT && xr.pos == 1);
+  asn1_byte_reader_t* br=NULL;
+  CHECK(asn1_byte_reader_create(&br,asn1_byte_view(NULL,1))==ASN1_ERR_INVALID_ARGUMENT && br==NULL);
+  char text[4] = {0}; asn1_jer_writer_t jw;
+  CHECK(asn1_jer_writer_init(&jw,text,sizeof(text))==ASN1_OK);
+  CHECK(asn1_jer_writer_puts(&jw,"A")==ASN1_OK);
+  CHECK(asn1_jer_writer_puts(&jw,"overflow")==ASN1_ERR_LENGTH_OVERFLOW && jw.used==1 && text[0]=='A');
+  CHECK(asn1_jer_writer_printf(&jw,"%s","overflow")==ASN1_ERR_LENGTH_OVERFLOW && jw.used==1 && text[0]=='A');
+  asn1_xer_writer_t xw;
+  CHECK(asn1_xer_writer_init(&xw,text,sizeof(text))==ASN1_OK);
+  CHECK(asn1_xer_writer_puts(&xw,"A")==ASN1_OK);
+  CHECK(asn1_xer_writer_puts(&xw,"overflow")==ASN1_ERR_LENGTH_OVERFLOW && xw.used==1 && text[0]=='A');
   CHECK(live == 0);
 }
 
@@ -282,12 +293,42 @@ static void per_allocation_failures(void) {
   CHECK(live == 0);
 }
 
+static void signed_and_fragment_failures(void) {
+  normal();
+  asn1_bigint_t b; asn1_bigint_init(&b);
+  CHECK(asn1_bigint_init_from_decimal(&b,"-18446744073709551616",0)==ASN1_OK);
+  size_t baseline=live;
+  for(size_t at=0;;++at) {
+    uint8_t sentinel=0; uint8_t* out=&sentinel; size_t n=77;
+    inject(at);
+    asn1_status_t s=asn1_bigint_to_twos_complement(&b,&out,&n);
+    if(s==ASN1_OK) { CHECK(n==9 && out[0]==0xFF && out[1]==0); asn1_test_free(out); break; }
+    CHECK(s==ASN1_ERR_OUT_OF_MEMORY && out==&sentinel && n==77 && live==baseline);
+    CHECK(at<8);
+  }
+  normal(); asn1_bigint_free(&b); CHECK(live==0);
+  /* Fail after the first fragment has already been decoded and aggregated. */
+  uint8_t* wire=(uint8_t*)malloc(16387); CHECK(wire!=NULL);
+  wire[0]=0xC1; memset(wire+1,0xA5,16384); wire[16385]=1; wire[16386]=0xBB;
+  const asn1_per_length_constraint_t c={ASN1_PER_LENGTH_UNCONSTRAINED,0,0,0};
+  for(size_t at=0;;++at) {
+    normal(); asn1_bit_reader_t* r=NULL;
+    CHECK(asn1_bit_reader_create(&r,asn1_byte_view(wire,16387))==ASN1_OK); baseline=live;
+    uint8_t* out=NULL; size_t n=77; inject(at);
+    asn1_status_t s=asn1_per_decode_octetstring_ex(r,ASN1_PER_UNALIGNED,&c,&out,&n);
+    if(s==ASN1_OK) { CHECK(n==16385 && out[16384]==0xBB); asn1_test_free(out); asn1_bit_reader_destroy(r); break; }
+    CHECK(s==ASN1_ERR_OUT_OF_MEMORY && out==NULL && n==77 && live==baseline);
+    asn1_bit_reader_destroy(r); CHECK(live==0); CHECK(at<16);
+  }
+  free(wire); normal(); CHECK(live==0);
+}
+
 int main(void) {
   CHECK(ASN1_ERR_UNSUPPORTED == 7 && ASN1_ERR_LENGTH_OVERFLOW == 3);
   CHECK(strcmp(asn1_status_name(ASN1_ERR_OUT_OF_MEMORY), "ASN1_ERR_OUT_OF_MEMORY") == 0);
   CHECK(strcmp(asn1_status_name(ASN1_ERR_RESOURCE_LIMIT), "ASN1_ERR_RESOURCE_LIMIT") == 0);
   writer_failures(); unaligned_writer_failures(); bigint_failures();
-  reader_failures(); output_contracts(); per_allocation_failures();
+  reader_failures(); output_contracts(); per_allocation_failures(); signed_and_fragment_failures();
   CHECK(live == 0);
   printf("C runtime failure contracts: %u checks passed\n", checks);
   return 0;

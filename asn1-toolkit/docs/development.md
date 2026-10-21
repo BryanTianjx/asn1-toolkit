@@ -49,6 +49,12 @@ C11 的 `Asn1CRuntimeSmoke` 验证原语链接运行；
 生命周期、资源上限及恢复路径。测试 hook 不进入生产库，契约见
 [c-runtime-contracts.md](c-runtime-contracts.md)。
 
+`Asn1CPerCorrectness` / `Asn1CPerLargeValues` 使用独立冻结 oracle 向量、位模型和
+条文边界测试；大值目标不修改生产资源默认值。声明覆盖见
+[c-runtime-test-coverage.md](c-runtime-test-coverage.md)。开发时可运行
+`scripts/validate_c_per_oracle.py` 重新独立差分；`--write-vectors` 仅在审查后
+更新，不得使用本实现输出代替 oracle 金标准。
+
 ### 编译器与基础
 
 | 可执行 | 覆盖 |

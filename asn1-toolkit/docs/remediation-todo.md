@@ -72,9 +72,11 @@
 
 ### REV-04 【严重】MSB-first 尾位和短源输入
 
-- [ ] 状态：待办；依据：快路径取低位，慢路径取高位；短源可能少写仍成功。
+- [x] 状态：完成（2026-10-20）；原依据：快路径取低位，慢路径取高位；短源可能少写仍成功。
 
-- 第一批进展：REV-01 已补短源/NULL 输入预检和完整预留，防止失败部分写入；尾位 MSB-first 语义和本项完整参考矩阵尚未修复/验收，仍保持待办。
+- 完成：高位 MSB-first 尾位、源容量/NULL 校验、超过 64 bit 明确失败；独立逐位模型覆盖 8×18 组合。实测见 [第二批验收](rev04-09-validation.md)。
+
+- 历史进展：第一批已补短源/NULL 预检与完整预留；本批补齐尾位语义和完整参考矩阵。
 
 - 范围：`src/c_runtime/bit_io.c`，BIT STRING 调用路径。
 
@@ -86,7 +88,9 @@
 
 ### REV-05 【严重】无约束 INTEGER 补码编码及符号解码
 
-- [ ] 状态：待办；依据：C PER 使用无符号幅值，负数解码可成功得到正数。
+- [x] 状态：完成（2026-10-20）；原依据：C PER 使用无符号幅值，负数解码可成功得到正数。
+
+- 完成：signed/unsigned API 分离，最短补码、符号保护及负数/大数解码，空/冗余表示拒绝。独立差分及分配失败证据见 [第二批验收](rev04-09-validation.md)。
 
 - 范围：`src/c_runtime/{bigint,per}.c`、相关公开头。
 
@@ -98,7 +102,9 @@
 
 ### REV-06 【严重】PER 长度分片链
 
-- [ ] 状态：待办；依据：大长度仅写 C1..C4 后直接写完整 payload。
+- [x] 状态：完成（2026-10-20）；原依据：大长度仅写 C1..C4 后直接写完整 payload。
+
+- 完成：more 显式 determinant、完整字符串/open type 片段链、多片与结束零；默认上限保持，测试副本验证 65537/131072 byte；scalar helper 不丢弃分片状态。见 [第二批验收](rev04-09-validation.md)。
 
 - 范围：`src/c_runtime/per.c`、`include/asn1/c_runtime/per.h`。
 
@@ -110,7 +116,9 @@
 
 ### REV-07 【重要】BIT STRING 变长范围及整数约束分类
 
-- [ ] 状态：待办；依据：BIT STRING 解码直接使用 upper；整数上下界缺省处理不对称。
+- [x] 状态：完成（2026-10-20）；原依据：BIT STRING 解码直接使用 upper；整数上下界缺省处理不对称。
+
+- 完成：明确长度描述符、实际 bit length、根内/根外扩展、半约束、无界及完整 int64；SIZE 上界 64K 阈值独立对验。大于 int64 的有界描述符/不连续集合不在本原语接口能力内，详见 [验证边界](rev04-09-validation.md)。
 
 - 范围：C PER 约束描述与 encode/decode。
 
@@ -122,7 +130,9 @@
 
 ### REV-08 【重要】C PER 统一 Variant 接口
 
-- [ ] 状态：待办；依据：当前 C API 没有 variant，APER 尚延期。
+- [x] 状态：完成（2026-10-20）；原依据：当前 C API 没有 variant，APER 尚延期。
+
+- 完成：`per_core.c` 单核心以 Variant 参数化，旧 ABI UPER 包装；前置 bit 的整数/长度/字符串/open type 对齐和尾字段验证；234 独立双向用例、184 冻结向量。见 [第二批验收](rev04-09-validation.md)。
 
 - 范围：`include/asn1/c_runtime/per.h`、`src/c_runtime/per.c`。
 
@@ -134,7 +144,9 @@
 
 ### REV-09 【重要】重构 C smoke 的验证口径
 
-- [ ] 状态：待办；依据：部分 round-trip 命名仅检查编码，reader 只初始化也被描述为解码能力。
+- [x] 状态：完成（2026-10-20）；原依据：部分 round-trip 命名仅检查编码，reader 只初始化也被描述为解码能力。
+
+- 完成：旧 smoke 补实际解码，新正确性/大值门禁各 4473 检查、failure 498 检查；[声明登记](c-runtime-test-coverage.md) 明确 init 与 codec 能力边界；Release/sanitizer 各 348/348、历史矩阵 84/84。见 [第二批验收](rev04-09-validation.md)。
 
 - 范围：`tests/c_lang/*`、`tests/CMakeLists.txt`、C runtime 注释。
 

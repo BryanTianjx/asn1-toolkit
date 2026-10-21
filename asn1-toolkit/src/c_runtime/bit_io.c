@@ -126,7 +126,7 @@ asn1_status_t asn1_bit_writer_put_bits(asn1_bit_writer_t* w,
     return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (nbits > 64) {
-    nbits = 64;
+    return ASN1_ERR_INVALID_ARGUMENT;
   }
   if (nbits == 0) {
     return ASN1_OK;
@@ -193,8 +193,8 @@ asn1_status_t asn1_bit_writer_put_bits_from_bytes(asn1_bit_writer_t* w,
         return ASN1_OK;
       }
       const size_t byte_index = w->bit_count >> 3;
-      w->buf[byte_index] = (uint8_t)((bytes.data[whole] & mask_bits(nbits))
-                                       << (8u - nbits));
+      w->buf[byte_index] = (uint8_t)(bytes.data[whole]
+                                   & (uint8_t)(0xFFu << (8u - nbits)));
       w->bit_count += nbits;
       return ASN1_OK;
     }

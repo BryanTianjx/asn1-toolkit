@@ -8,21 +8,29 @@
 
 **Phase 49 — C 语言代码生成器（P2-4，sub-task 1 + sub-task 2 已落地；sub-task 3+ 未排期）。**
 
+- **2026-10-20，REV-04..09**：C PER 原语修复 MSB-first 尾位、有符号大整数、
+  长度片段链与变长/扩展约束；统一 `per_core.c` 以 Variant 参数化，旧 ABI
+  保留为 UPER 包装。默认 64KiB decoder 限制保持；大值门禁单独编译 128KiB
+  源副本。Release 与 ASan+UBSan 均 **348/348**；故障检查 498，两个 PER
+  门禁各 4473 检查，独立 asn1tools 双向差分 234 用例、184 冻结短向量。
+  具体支持范围、oracle 排除项和旧 raw payload API 语义见
+  [第二批验收记录](rev04-09-validation.md) 与
+  [声明/测试登记](c-runtime-test-coverage.md)。这不代表完整 C emitter 已完成。
+
 - **2026-10-20，REV-01..03**：C11 BitWriter 整次预留容量并传播 OOM/溢出；
   BigInt 临时解析成功后提交，传播分配失败与 limb 限制；新增 C 状态码 8/9
   （原 0..7 不变），核对并修正原语输出/所有权契约及失败清理。
   `Asn1CRuntimeFailureContracts` 含 424 个内部检查；Release 与 ASan+UBSan
   全量 CTest 均 **346/346** 通过。生命周期说明见
   [c-runtime-contracts.md](c-runtime-contracts.md)，命令与门禁证据见
-  [REV-01..03 验收记录](rev01-03-validation.md)。第二批 PER 线路修复仍待办，
-  此条不代表 C runtime 的标准覆盖或 C emitter 已完成。
+  [REV-01..03 验收记录](rev01-03-validation.md)。该批不含 PER 线路修复；
+  后续结果见上方 REV-04..09，不据此推定全部 C codec 或 C emitter 已完成。
 
 - **P2-4 sub-task 1 + 2（已完成）**：`include/asn1/c_runtime/*` 头骨架
   + `src/c_runtime/*.c` 纯 C11 实现 + `asn1::c_runtime` 静态库 +
-  `Asn1CRuntimeSmoke` 链接+运行门禁。所有头声明的函数 / 方法均有体
-  实现并按 canonical 字节形式验证（BitWriter/Reader、BigInteger、
-  BER TLV tag+length、PER 约束 INTEGER / BIT STRING / OCTET STRING、
-  JER/XER writer+reader）。命名约定 `asn1_<codec>_<primitive>`
+  `Asn1CRuntimeSmoke` 链接+运行门禁。当前声明实现和解码/负例范围以
+  [测试登记](c-runtime-test-coverage.md) 为准；JER/XER reader init 只绑定输入，
+  不等于完整解析器。命名约定 `asn1_<codec>_<primitive>`
   替代 C++ `namespace asn1::<codec>::<primitive>`（flat prefix，无嵌套）。
   Byte-equivalent 的设计为后续 sub-task 3+（`emit_c/*` + `--lang c`）做
   oracle 复用留下基础。
@@ -88,8 +96,8 @@
 
 | 门禁 | 结果 |
 |------|------|
-| Release 构建 ctest | **346/346 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；含既有 345 项及新增 `Asn1CRuntimeFailureContracts`，内部 424 个检查） |
-| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **346/346 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
+| Release 构建 ctest | **348/348 通过**，0 失败（2026-10-20，GCC 13.3 / WSL Ubuntu 24.04；新增 `Asn1CPerCorrectness` / `Asn1CPerLargeValues`，各 4473 检查；failure gate 498 检查） |
+| Sanitizer 构建 ctest（ASan+UBSan，Debug） | **348/348 通过**，0 失败，零 ASan/UBSan 报错（同日同工具链，启用 leak detection / halt_on_error） |
 | `-Wall -Wextra` | 无新增警告 |
 
 ## 编译门禁状态

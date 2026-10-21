@@ -60,6 +60,17 @@ set_target_properties(asn1_c_runtime_failure_tests PROPERTIES
   C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 add_test(NAME Asn1CRuntimeFailureContracts COMMAND asn1_c_runtime_failure_tests)
 
+add_executable(asn1_c_per_correctness c_lang/c_per_correctness_test.c)
+target_link_libraries(asn1_c_per_correctness PRIVATE asn1::c_runtime)
+set_target_properties(asn1_c_per_correctness PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+add_test(NAME Asn1CPerCorrectness COMMAND asn1_c_per_correctness)
+# Same tests above the production 64KiB decoder cap, without weakening it.
+add_executable(asn1_c_per_large c_lang/c_per_correctness_test.c ${_c_runtime_sources})
+target_include_directories(asn1_c_per_large PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_definitions(asn1_c_per_large PRIVATE ASN1_MAX_STRING_BYTES=131072)
+set_target_properties(asn1_c_per_large PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+add_test(NAME Asn1CPerLargeValues COMMAND asn1_c_per_large)
+
 add_executable(asn1_constraints_tests constraints/constraints_test.cpp)
 target_link_libraries(asn1_constraints_tests PRIVATE asn1::frontend asn1::constraints asn1::semantic GTest::gtest_main)
 gtest_discover_tests(asn1_constraints_tests)
